@@ -132,11 +132,11 @@ export const useHabits = defineStore('habits', () => {
 
 export const habitSteps: HabitStep[] = [
     {
-        title: "坏习惯移动",
+        title: "转移标记",
         detail: "坏习惯标记会移动到下一个坏习惯。",
     },
     {
-        title: "坏习惯行动",
+        title: "触发坏习惯",
         detail: "有标记存在的坏习惯会将周围特定位置的好习惯翻面为坏习惯。",
     },
     {

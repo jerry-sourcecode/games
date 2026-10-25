@@ -1,14 +1,6 @@
 # games
 
-游戏集合站点。首页用 Vue Bits 的 `ChromaGrid` 组件展示游戏卡片，点击卡片进入对应游戏。
-
-## 目录结构
-
-- `src/views/HomeView.vue` — 主页，游戏卡片列表
-- `src/components/ChromaGrid.vue` — 聚光灯卡片网格（TypeScript + Tailwind，动画依赖 gsap；PC 两列 / 移动单列，卡片为左封面 + 右信息的扁平样式）
-- `src/views/HabitsView.vue` — 「习惯」游戏页面
-- `src/router/index.ts` — 路由表
-- `src/style.css` — Tailwind 入口与全局样式
+一个游戏集合站点。
 
 ## 添加一个新游戏
 
