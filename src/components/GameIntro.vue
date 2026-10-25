@@ -13,10 +13,7 @@ import gsap from "gsap";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { GameDetail, GameFact } from "@/types/game";
-import { NDataTable } from "naive-ui";
 import { useHabitsRecord } from "@/habits/data/gameRecord";
-import { formatDateTime } from "@/utils/utils";
-import { HabitsResultRecord } from "@/habits/modal/habitModal";
 
 const props = defineProps<{ game: GameDetail }>();
 const emit = defineEmits<{ start: [] }>();
@@ -352,58 +349,9 @@ onBeforeUnmount(() => {
 			<div
 				v-if="activeTab === 'record'"
 				id="panel-record"
-				role="tabpanel">
-				<NDataTable
-					:columns="[
-						{
-							title: '时间',
-							key: 'time',
-							render(rowData: HabitsResultRecord) {
-								return h(
-									'p',
-									null,
-									formatDateTime(rowData.time),
-								);
-							},
-						},
-						{
-							title: '使用轮次',
-							key: 'round',
-						},
-						{
-							title: '结果',
-							key: 'result',
-							render(rowData: HabitsResultRecord) {
-								const isSuccess = rowData.result === 'win';
-								return h(
-									'div',
-									{
-										style: {
-											display: 'inline-flex',
-											alignItems: 'center',
-											padding: '3px 12px',
-											borderRadius: '6px',
-											fontSize: '14px',
-											// 绿色 / 红色主题
-											color: isSuccess
-												? '#16a34a'
-												: '#dc2626',
-											backgroundColor: isSuccess
-												? 'rgba(22, 163, 74, 0.1)'
-												: 'rgba(220, 38, 38, 0.1)',
-											border: `1px solid ${
-												isSuccess
-													? 'rgba(22, 163, 74, 0.3)'
-													: 'rgba(220, 38, 38, 0.3)'
-											}`,
-										},
-									},
-									h('span', isSuccess ? '胜利' : '失败'),
-								);
-							},
-						},
-					]"
-					:data="habitsRecord.result"></NDataTable>
+				role="tabpanel"
+				class="mt-5">
+				<slot />
 			</div>
 		</div>
 	</section>

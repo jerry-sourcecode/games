@@ -4,6 +4,7 @@ import Dice from "@/components/Dice.vue";
 import DicePayDialog from "./dice-pay-dialog.vue";
 import {
 	habitsEffectRanges,
+	habitsText,
 	useHabits,
 	type HabitStep,
 } from "../data/habitData";
@@ -67,8 +68,9 @@ function onConfirm(pays: [number, number]) {
 		return;
 	}
 
-	// 交换：先记录第一张牌，等待玩家点击第二张好习惯
+	// 交换：先记录第一张牌与已支付的点数，等待玩家点击第二张好习惯
 	habits.swapFrom = idx;
+	habits.swapPaid = [pays[0], pays[1]];
 	habits.selectedIdx = null;
 }
 
@@ -81,13 +83,13 @@ function onProtect() {
 }
 
 function onEndTurn() {
-	habits.swapFrom = null;
+	habits.cancelSwap();
 	habits.selectedIdx = null;
 	habits.step = 4;
 }
 
 function cancelSwap() {
-	habits.swapFrom = null;
+	habits.cancelSwap();
 }
 
 const canEndTurn = computed(() => habits.step === 3);
@@ -120,7 +122,13 @@ const canEndTurn = computed(() => habits.step === 3);
 				v-if="habits.swapFrom != null"
 				class="my-3 flex flex-col gap-2 rounded-xl border border-sky-400/25 bg-sky-400/[0.08] px-3 py-2.5">
 				<p class="text-[11.5px] leading-5 text-sky-100/75">
-					请点击另一张好习惯完成交换。
+					您已选中
+					<b>{{
+						habitsText[
+							habits.states.getCard(habits.swapFrom).toString()
+						]
+					}}</b
+					>，请点击另一张好习惯与其交换。
 				</p>
 				<n-button size="small" quaternary block @click="cancelSwap">
 					取消交换
@@ -144,7 +152,7 @@ const canEndTurn = computed(() => habits.step === 3);
 					size="small"
 					:disabled="btnDisabled"
 					@click="openDialog('use')">
-					使用
+					激活好习惯
 				</n-button>
 				<n-button
 					strong
@@ -156,7 +164,6 @@ const canEndTurn = computed(() => habits.step === 3);
 					交换习惯
 				</n-button>
 				<n-button
-					v-if="!habits.hasActed"
 					strong
 					type="primary"
 					block

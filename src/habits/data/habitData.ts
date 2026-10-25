@@ -16,9 +16,9 @@ export const habitGame: GameDetail = {
     duration: '3~5 分钟',
     players: '1 人',
     age: '8 岁以上',
-    version: 'v0.1 预览',
+    version: 'v0.1 正式版',
     tags: ['九卡', '谜题', '轻量'],
-    status: '开发中',
+    status: '已上线',
     accent: '#34D399',
     gradient: 'linear-gradient(150deg, #064e3b 0%, #0b1220 60%, #05060a 100%)',
     gameplay: habitGameplay,
@@ -76,6 +76,8 @@ export const useHabits = defineStore('habits', () => {
     const selectedIdx: Ref<number | null> = ref(null);
     /** 交换行动：已完成支付、等待选择第二张牌时记录第一张牌的下标 */
     const swapFrom: Ref<number | null> = ref(null);
+    /** 待完成的交换已支付的骰子点数，取消时原额返还 */
+    const swapPaid: Ref<[number, number] | null> = ref(null);
     /** 本回合是否已经执行过「使用」或「交换」 */
     const hasActed = ref(false);
     /** 对局结果；null 表示仍在进行 */
@@ -92,6 +94,25 @@ export const useHabits = defineStore('habits', () => {
         });
     }
 
+    /** 返还骰子点数，不会超过骰子面值 */
+    function refundDices(pays: number[]) {
+        pays.forEach((pay, i) => {
+            const left = dicesLeft.value[i];
+            const face = dices.value[i];
+            if (left === undefined || face === undefined) return;
+            dicesLeft.value[i] = Math.min(face, left + pay);
+        });
+    }
+
+    /** 放弃尚未完成的交换：返还已支付的点数 */
+    function cancelSwap() {
+        if (swapPaid.value) {
+            refundDices([...swapPaid.value]);
+            swapPaid.value = null;
+        }
+        swapFrom.value = null;
+    }
+
     return {
         states,
         step,
@@ -99,10 +120,13 @@ export const useHabits = defineStore('habits', () => {
         dicesLeft,
         selectedIdx,
         swapFrom,
+        swapPaid,
         hasActed,
         result,
         round,
-        payDices
+        payDices,
+        refundDices,
+        cancelSwap
     }
 })
 
@@ -121,7 +145,7 @@ export const habitSteps: HabitStep[] = [
     },
     {
         title: "行动阶段",
-        detail: "以下行动选择三选一：使用好习惯、交换两张好习惯、保护一张好习惯。",
+        detail: "以下行动选择：激活好习惯、交换两张好习惯、保护一张好习惯。",
         tip: "点击卡牌来进行行动。",
     },
     {

@@ -117,7 +117,7 @@ const toggleSelect = (index: number) => {
 	// 已支付交换的点数：点击第二张好习惯完成交换
 	if (from != null) {
 		if (idx === from) {
-			habitsStates.swapFrom = null;
+			habitsStates.cancelSwap();
 			return;
 		}
 		const target = habitsStates.states.getCard(idx);
@@ -126,6 +126,7 @@ const toggleSelect = (index: number) => {
 		const [r1, c1] = habitsStates.states.idxToPos(from);
 		const [r2, c2] = habitsStates.states.idxToPos(idx);
 		habitsStates.states.swap(r1, c1, r2, c2);
+		habitsStates.swapPaid = null;
 		habitsStates.swapFrom = null;
 		refreshCells();
 		return;
