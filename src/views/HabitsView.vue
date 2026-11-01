@@ -22,7 +22,8 @@ const habitsRecord = useHabitsRecord();
 		</div>
 
 		<div
-			class="relative mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-5 py-3 sm:px-6">
+			class="relative mx-auto flex min-h-dvh w-full flex-col px-5 py-3 sm:px-6"
+			:class="started ? 'max-w-6xl' : 'max-w-5xl'">
 			<main class="flex-1">
 				<GameIntro
 					v-if="!started"

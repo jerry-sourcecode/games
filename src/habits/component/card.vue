@@ -52,6 +52,8 @@ const cardAriaLabel = computed(() => {
 	if (props.selected) parts.push("已选中");
 	if (props.card.isTaged) parts.push("当前待处理");
 	if (props.card.protected) parts.push("已保护");
+	if (props.card.important)
+		parts.push(`重要习惯，剩余 ${props.card.importantTurns} 回合`);
 	if (props.affected) parts.push("在影响范围内");
 	return parts.join("，");
 });
@@ -119,7 +121,10 @@ const onSelect = () => emit("select");
 		</FlipCard>
 
 		<!-- 被选中：呼吸外环 -->
-		<span v-if="selected" aria-hidden="true" class="habit-ring habit-ring--selected" />
+		<span
+			v-if="selected"
+			aria-hidden="true"
+			class="habit-ring habit-ring--selected" />
 
 		<!-- 影响范围内：脉冲描边 -->
 		<span
@@ -144,10 +149,21 @@ const onSelect = () => emit("select");
 			当前
 		</span>
 
-		<!-- 已保护的牌：盾牌角标 -->
+		<!-- 重要习惯：左上角标签，左下角显示剩余回合 -->
+		<span
+			v-if="card.important"
+			:title="`重要习惯，剩余 ${card.importantTurns} 回合`"
+			class="pointer-events-none absolute -top-2.5 -left-2 z-20 inline-flex items-center gap-1 rounded-full bg-violet-400 px-2 py-0.5 text-[10px] leading-3.5 font-semibold whitespace-nowrap text-violet-950 shadow-[0_6px_16px_-6px_rgba(167,139,250,0.95)]">
+			重要
+			<span class="rounded-full bg-violet-950/25 px-1 tabular-nums">
+				{{ card.importantTurns }}
+			</span>
+		</span>
+
+		<!-- 已保护的牌：盾牌角标，右下角显示剩余回合 -->
 		<span
 			v-if="card.protected"
-			title="已保护"
+			:title="`已保护，剩余 ${card.protectTurns} 回合`"
 			class="pointer-events-none absolute -top-2 -right-2 z-20 grid h-6 w-6 place-items-center rounded-full border border-white/25 bg-sky-400 text-sky-950 shadow-[0_6px_16px_-6px_rgba(56,189,248,0.95)]">
 			<svg viewBox="0 0 24 24" class="h-3.5 w-3.5" aria-hidden="true">
 				<path
@@ -161,7 +177,14 @@ const onSelect = () => emit("select");
 					stroke-linecap="round"
 					stroke-linejoin="round" />
 			</svg>
-			<span class="sr-only">已保护</span>
+			<span
+				v-if="card.protectTurns > 1"
+				class="absolute -right-1 -bottom-1 grid h-3.5 w-3.5 place-items-center rounded-full bg-sky-950 text-[8.5px] leading-none font-bold text-sky-200 tabular-nums">
+				{{ card.protectTurns }}
+			</span>
+			<span class="sr-only"
+				>已保护，剩余 {{ card.protectTurns }} 回合</span
+			>
 		</span>
 	</div>
 </template>
@@ -189,7 +212,11 @@ const onSelect = () => emit("select");
 	inset: -14%;
 	border-radius: 28px;
 	pointer-events: none;
-	background: radial-gradient(closest-side, rgb(167 139 250 / 0.45), transparent 76%);
+	background: radial-gradient(
+		closest-side,
+		rgb(167 139 250 / 0.45),
+		transparent 76%
+	);
 	filter: blur(10px);
 	opacity: 0.9;
 }

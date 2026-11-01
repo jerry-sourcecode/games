@@ -1,6 +1,7 @@
 import { reactive } from "vue";
 import { shuffle } from "@/utils/utils";
 import type { GameResult } from "../component/result-dialog.vue";
+import type { SkillKey } from "../data/skills";
 
 type CardAttuType = "Good" | "Bad";
 
@@ -8,7 +9,13 @@ export class HabitCard {
     attu: CardAttuType;
     variety: number;
     protected: boolean = false;
+    /** 剩余保护回合数；0 表示无保护 */
+    protectTurns: number = 0;
     isTaged: boolean = false;
+    /** 标要：是否为「重要习惯」 */
+    important: boolean = false;
+    /** 标要：重要习惯剩余回合数；0 表示已到期 */
+    importantTurns: number = 0;
     constructor(attu: CardAttuType, variety: number) {
         this.attu = attu;
         this.variety = variety;
@@ -63,8 +70,21 @@ export class HabitStates {
         this.tag = 1;
         this.getCard(1, 1).isTaged = true;
     }
-    tagMove() {
-        this.data.get(this.tag)!.isTaged = false;
+    tagMove(preferred?: number | null) {
+        const previous = this.tag;
+        const previousCard = this.data.get(previous);
+        // 预言指定的落点合法时优先落在此处
+        if (
+            preferred != null &&
+            preferred !== previous &&
+            this.data.get(preferred)?.attu === 'Bad'
+        ) {
+            previousCard!.isTaged = false;
+            this.tag = preferred;
+            this.data.get(this.tag)!.isTaged = true;
+            return;
+        }
+        previousCard!.isTaged = false;
         do {
             this.tag = this.tag.nxt(9);
         } while (this.data.get(this.tag)!.attu !== 'Bad')
@@ -77,16 +97,23 @@ export class HabitStates {
         else obj.attu = 'Bad';
     }
     swap(row1: number, col1: number, row2: number, col2: number) {
-        const obj1 = this.getCard(row1, col1).toString();
-        const obj2 = this.getCard(row2, col2).toString();
-        this.setCard(row2, col2, HabitCard.fromString(obj1));
-        this.setCard(row1, col1, HabitCard.fromString(obj2));
+        // 直接交换卡牌对象，保护状态与标记随牌一起移动
+        const i1 = this.posToIdx([row1, col1]);
+        const i2 = this.posToIdx([row2, col2]);
+        const card1 = this.data.get(i1)!;
+        const card2 = this.data.get(i2)!;
+        this.data.set(i1, card2);
+        this.data.set(i2, card1);
     }
-    protect(row: number, col: number) {
-        this.getCard(row, col).protected = true;
+    protect(row: number, col: number, turns = 1) {
+        const card = this.getCard(row, col);
+        card.protected = true;
+        card.protectTurns = turns;
     }
     unprotect(row: number, col: number) {
-        this.getCard(row, col).protected = false;
+        const card = this.getCard(row, col);
+        card.protected = false;
+        card.protectTurns = 0;
     }
 }
 
@@ -100,6 +127,15 @@ export class HabitsResultRecord {
         this.result = result;
     }
 }
+
+/**
+ * 本局技能配置：
+ * - separate：主技能以 II 级、副技能以 I 级生效；其中一项可为 null（本次不带该技能）
+ * - merged：主副同名合并，该技能以 III 级生效
+ */
+export type SkillLoadout =
+    | { kind: "separate"; main: SkillKey | null; sub: SkillKey | null }
+    | { kind: "merged"; skill: SkillKey };
 
 // 单个偏移：[row, col]
 type Offset = readonly [row: number, col: number];

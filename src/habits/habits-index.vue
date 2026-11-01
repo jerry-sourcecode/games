@@ -9,7 +9,10 @@ import {
 } from "vue";
 import Card from "@/habits/component/card.vue";
 import StepPanel from "@/habits/component/step-panel.vue";
+import DicePanel from "@/habits/component/dice-panel.vue";
 import ResultDialog from "@/habits/component/result-dialog.vue";
+import SkillPanel from "@/habits/component/skill-panel.vue";
+import SkillSelectDialog from "@/habits/component/skill-select-dialog.vue";
 import { habitSteps, habitsEffectRanges, useHabits } from "./data/habitData";
 import { gameStart, resetGame } from "./game";
 import { useHabitsRecord } from "./data/gameRecord";
@@ -53,6 +56,8 @@ const emit = defineEmits<{ exit: [] }>();
 
 /** 对局结束时弹出结算框 */
 const resultShow = ref(false);
+/** 尚未选取技能时弹出选取框，选定后才开始对局 */
+const skillShow = ref(false);
 
 const counts = computed(() => {
 	let good = 0;
@@ -112,22 +117,44 @@ const toneAt = (index: number) => affectedTones.value.get(index) ?? null;
 
 const toggleSelect = (index: number) => {
 	const idx = index + 1;
+
+	// 标要：挑选候选卡牌 / III 级选择翻面目标
+	if (habitsStates.markPicking) {
+		habitsStates.toggleMarkPick(idx);
+		return;
+	}
+	if (habitsStates.resolveMarkFlip(idx)) return;
+
+	// 协防：已保护第一张，点击第二张好习惯完成额外保护
+	const coverFrom = habitsStates.coverFrom;
+	if (coverFrom != null) {
+		const target = habitsStates.states.getCard(idx);
+		if (idx === coverFrom || target.attu !== "Good" || target.protected)
+			return;
+		habitsStates.protectCard(idx);
+		habitsStates.clearCover();
+		habitsStates.step = 4;
+		return;
+	}
+
 	const from = habitsStates.swapFrom;
 
-	// 已支付交换的点数：点击第二张好习惯完成交换
+	// 已支付交换的点数：点击第二张牌完成交换（乾坤挪移可纳入坏习惯）
 	if (from != null) {
 		if (idx === from) {
 			habitsStates.cancelSwap();
 			return;
 		}
-		const target = habitsStates.states.getCard(idx);
-		if (target.attu !== "Good" || target.protected) return;
+		if (!habitsStates.canSwapWith(idx)) return;
 
 		const [r1, c1] = habitsStates.states.idxToPos(from);
 		const [r2, c2] = habitsStates.states.idxToPos(idx);
 		habitsStates.states.swap(r1, c1, r2, c2);
 		habitsStates.swapPaid = null;
 		habitsStates.swapFrom = null;
+		habitsStates.swapBadLeft = 0;
+		// 折冲 III：每回合首次交换的额外减费在本次交换完成后失效
+		habitsStates.swapCount++;
 		refreshCells();
 		return;
 	}
@@ -166,7 +193,14 @@ onMounted(() => {
 	observer = new ResizeObserver(measure);
 	if (boardRef.value) observer.observe(boardRef.value);
 	window.addEventListener("resize", measure);
-	gameStart();
+
+	// 技能选取完成前不启动游戏循环，避免抽骰和翻牌在选取期间发生
+	if (habitsStates.loadout) {
+		gameStart();
+	} else {
+		habitsStates.beginSkillSelection();
+		skillShow.value = true;
+	}
 });
 
 onBeforeUnmount(() => {
@@ -181,12 +215,27 @@ const onRestart = () => {
 	refreshCells();
 	gameStart();
 };
+
+/** 技能选取完成，正式开局 */
+const onSkillsReady = () => {
+	skillShow.value = false;
+	gameStart();
+};
 </script>
 
 <template>
 	<div
-		class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_248px] lg:gap-6">
-		<div ref="boardRef" class="min-w-0">
+		class="grid items-start gap-4 lg:grid-cols-[232px_minmax(0,1fr)_250px] lg:gap-5">
+		<!-- 左栏：移动端拆成独立栅格项（contents），桌面端堆叠为固定列 -->
+		<div
+			class="contents lg:sticky lg:top-6 lg:col-start-1 lg:flex lg:min-w-0 lg:flex-col lg:gap-4">
+			<DicePanel class="order-1 lg:order-none" />
+			<SkillPanel class="order-4 lg:order-none" />
+		</div>
+
+		<div
+			ref="boardRef"
+			class="order-2 min-w-0 lg:order-none lg:col-start-2">
 			<div
 				class="mx-auto grid w-fit grid-cols-3"
 				:style="{ gap: `${GAP}px` }">
@@ -196,7 +245,10 @@ const onRestart = () => {
 					:card="card"
 					:width="cardWidth"
 					:height="cardHeight"
-					:selected="habitsStates.selectedIdx === index + 1"
+					:selected="
+						habitsStates.selectedIdx === index + 1 ||
+						habitsStates.markPicked.includes(index + 1)
+					"
 					:affected="toneAt(index)"
 					@select="toggleSelect(index)"
 					@hover="hoverIdx = index"
@@ -204,10 +256,10 @@ const onRestart = () => {
 			</div>
 		</div>
 
-		<StepPanel
-			v-model:active="currentStep"
-			:steps="habitSteps"
-			class="lg:sticky lg:top-6" />
+		<div
+			class="order-3 min-w-0 lg:order-none lg:col-start-3 lg:sticky lg:top-6">
+			<StepPanel v-model:active="currentStep" :steps="habitSteps" />
+		</div>
 
 		<ResultDialog
 			v-model:show="resultShow"
@@ -218,6 +270,8 @@ const onRestart = () => {
 			:total="9"
 			@restart="onRestart"
 			@exit="emit('exit')" />
+
+		<SkillSelectDialog v-model:show="skillShow" @done="onSkillsReady" />
 	</div>
 </template>
 

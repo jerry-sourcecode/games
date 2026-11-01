@@ -9,7 +9,7 @@ import {
 } from "naive-ui";
 import Dice from "@/components/Dice.vue";
 
-type PayMode = "use" | "swap";
+type PayMode = "use" | "swap" | "anchor";
 
 const props = withDefaults(
 	defineProps<{
@@ -22,16 +22,15 @@ const props = withDefaults(
 		row?: number;
 		/** 使用行动：目标牌所在列（1–3） */
 		col?: number;
+		/** 交换行动两颗骰子的合计点数，受技能影响 */
+		cost?: number;
 	}>(),
-	{ row: 0, col: 0 },
+	{ row: 0, col: 0, cost: 6 },
 );
 
 const show = defineModel<boolean>("show", { default: false });
 
 const emit = defineEmits<{ confirm: [pays: [number, number]] }>();
-
-/** 交换行动两颗骰子的合计点数 */
-const SWAP_COST = 6;
 
 const themeOverrides: GlobalThemeOverrides = {
 	common: {
@@ -51,12 +50,16 @@ const faceOf = (i: number) => props.faces[i] ?? 1;
 
 const diceRows = computed(() => [0, 1]);
 
-const title = computed(() => (isUse.value ? "使用好习惯" : "交换习惯"));
+const title = computed(() =>
+	isUse.value ? "使用好习惯" : props.mode === "swap" ? "交换习惯" : "预言",
+);
 
 const subtitle = computed(() =>
 	isUse.value
 		? `目标位于第 ${props.row} 行第 ${props.col} 列，需要一颗骰子支付 ${props.row} 点，另一颗支付 ${props.col} 点。`
-		: `两颗骰子合计支付 ${SWAP_COST} 点。`,
+		: props.mode === "swap"
+			? `两颗骰子合计支付 ${props.cost} 点。`
+			: `两颗骰子合计支付 ${props.cost} 费用，指定敌方下一次标记的落点。`,
 );
 
 const total = computed(() => (pays[0] ?? 0) + (pays[1] ?? 0));
@@ -75,7 +78,7 @@ const valid = computed(() => {
 			(pays[0] === need[1] && pays[1] === need[0])
 		);
 	}
-	return total.value === SWAP_COST;
+	return total.value === props.cost;
 });
 
 const hint = computed(() => {
@@ -87,7 +90,7 @@ const hint = computed(() => {
 	if (isUse.value) {
 		return `需要一颗骰子支付 ${props.row} 点、另一颗支付 ${props.col} 点。当前为 ${pays[0] ?? 0} + ${pays[1] ?? 0}。`;
 	}
-	return `合计需要 ${SWAP_COST} 点，当前为 ${pays[0] ?? 0} + ${pays[1] ?? 0} = ${total.value} 点。`;
+	return `合计需要 ${props.cost} 点，当前为 ${pays[0] ?? 0} + ${pays[1] ?? 0} = ${total.value} 点。`;
 });
 
 /** 按需求自动填一组合法分配，找不到则清零 */
@@ -101,8 +104,8 @@ const autoFill = (): [number, number] => {
 		return [0, 0];
 	}
 
-	for (let p = Math.min(SWAP_COST, a); p >= 0; p--) {
-		const q = SWAP_COST - p;
+	for (let p = Math.min(props.cost, a); p >= 0; p--) {
+		const q = props.cost - p;
 		if (q <= b) return [p, q];
 	}
 	return [0, 0];
@@ -158,7 +161,7 @@ const confirm = () => {
 					<span
 						v-else
 						class="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-200/90">
-						两颗骰子合计 · 需 {{ SWAP_COST }} 点
+						两颗骰子合计，需 {{ props.cost }} 点
 					</span>
 				</div>
 
@@ -220,7 +223,7 @@ const confirm = () => {
 						<span
 							class="shrink-0 rounded-full border border-white/10 bg-black/30 px-2 py-0.5 text-[10.5px] text-white/50 tabular-nums">
 							合计 {{ total }} /
-							{{ isUse ? row + col : SWAP_COST }}
+							{{ isUse ? row + col : props.cost }}
 						</span>
 					</div>
 				</div>
