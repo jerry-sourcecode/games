@@ -121,10 +121,18 @@ export class HabitsResultRecord {
     time: number;
     round: number;
     result: GameResult;
-    constructor(time: number, round: number, result: GameResult) {
+    /** 本局携带的技能（名称 + 等级），旧记录可能没有该字段 */
+    skills?: { name: string; level: 1 | 2 | 3 }[];
+    constructor(
+        time: number,
+        round: number,
+        result: GameResult,
+        skills: { name: string; level: 1 | 2 | 3 }[] = [],
+    ) {
         this.time = time;
         this.round = round;
         this.result = result;
+        this.skills = skills;
     }
 }
 

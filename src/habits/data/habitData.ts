@@ -5,7 +5,7 @@ import { HabitStates, type EffectRanges, type HabitCard, type SkillLoadout } fro
 import { defineStore } from 'pinia'
 import { type Ref, computed, ref } from 'vue'
 import { randint } from '@/utils/utils'
-import { drawSkillCandidates, type SkillKey } from './skills'
+import { drawSkillCandidates, getSkill, type SkillKey } from './skills'
 
 /**
  * 目前唯一的游戏。文案为占位稿，直接改这里即可同步主页卡片与详情页介绍。
@@ -894,14 +894,31 @@ export const useHabits = defineStore('habits', () => {
         swapBadLeft.value = 0;
     }
 
-    /** 生成本局的技能候选；已有候选时不重复抽取 */
-    function beginSkillSelection() {
-        if (!mainCandidates.value.length) {
+    /** 生成本局的技能候选；已有候选时不重复抽取（redraw 为 true 时重新抽取） */
+    function beginSkillSelection(redraw = false) {
+        if (redraw || !mainCandidates.value.length) {
             mainCandidates.value = drawSkillCandidates(3);
         }
-        if (!subCandidates.value.length) {
+        if (redraw || !subCandidates.value.length) {
             subCandidates.value = drawSkillCandidates(3);
         }
+    }
+
+    /** 本局技能摘要：名称 + 等级，用于对局记录 */
+    function loadoutSummary(): { name: string; level: 1 | 2 | 3 }[] {
+        const current = loadout.value;
+        if (!current) return [];
+        if (current.kind === "merged") {
+            return [{ name: getSkill(current.skill).name, level: 3 }];
+        }
+        const rows: { name: string; level: 1 | 2 | 3 }[] = [];
+        if (current.main) {
+            rows.push({ name: getSkill(current.main).name, level: 2 });
+        }
+        if (current.sub) {
+            rows.push({ name: getSkill(current.sub).name, level: 1 });
+        }
+        return rows;
     }
 
     /** 确认本局技能配置 */
@@ -1017,6 +1034,7 @@ export const useHabits = defineStore('habits', () => {
         refundDices,
         cancelSwap,
         beginSkillSelection,
+        loadoutSummary,
         setLoadout,
         clearLoadout
     }

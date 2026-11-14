@@ -47,6 +47,70 @@ const habitsRecord = useHabitsRecord();
 								key: 'round',
 							},
 							{
+								title: '选择技能',
+								key: 'skills',
+								render(rowData: HabitsResultRecord) {
+									const skills = rowData.skills ?? [];
+									if (!skills.length) {
+										return h(
+											'span',
+											{ style: { color: '#94a3b8' } },
+											'未选择技能',
+										);
+									}
+									return h(
+										'div',
+										{
+											style: {
+												display: 'flex',
+												flexWrap: 'wrap',
+												gap: '4px',
+											},
+										},
+										skills.map((skill) => {
+											const main = skill.level === 2;
+											const merged = skill.level === 3;
+											return h(
+												'span',
+												{
+													style: {
+														padding: '1px 8px',
+														borderRadius: '999px',
+														fontSize: '12px',
+														whiteSpace: 'nowrap',
+														color: merged
+															? '#a78bfa'
+															: main
+																? '#34d399'
+																: '#cbd5e1',
+														backgroundColor:
+															merged
+																? 'rgba(167, 139, 250, 0.12)'
+																: main
+																	? 'rgba(52, 211, 153, 0.12)'
+																	: 'rgba(148, 163, 184, 0.12)',
+														border: `1px solid ${
+															merged
+																? 'rgba(167, 139, 250, 0.32)'
+																: main
+																	? 'rgba(52, 211, 153, 0.32)'
+																	: 'rgba(148, 163, 184, 0.28)'
+														}`,
+													},
+												},
+												`${skill.name} ${
+													skill.level === 3
+														? 'III'
+														: skill.level === 2
+															? 'II'
+															: 'I'
+												}`,
+											);
+										}),
+									);
+								},
+							},
+							{
 								title: '结果',
 								key: 'result',
 								render(rowData: HabitsResultRecord) {

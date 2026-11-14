@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
 	NButton,
 	NConfigProvider,
@@ -68,6 +68,14 @@ const stageMeta = computed(() => {
 
 const levelLabel = (level: 1 | 2 | 3) =>
 	level === 1 ? "I" : level === 2 ? "II" : "III";
+
+/** 每次打开都从第一步重新开始，避免沿用上一局的中间状态 */
+watch(show, (open) => {
+	if (!open) return;
+	stage.value = 1;
+	mainPick.value = undefined;
+	subPick.value = undefined;
+});
 
 const pickMain = (key: SkillKey) => {
 	mainPick.value = key;

@@ -15,6 +15,11 @@ const router = createRouter({
             component: () => import('@/views/HabitsView.vue'),
         },
         {
+            path: '/palm',
+            name: 'palm',
+            component: () => import('@/views/PalmView.vue'),
+        },
+        {
             path: '/:pathMatch(.*)*',
             redirect: '/',
         },

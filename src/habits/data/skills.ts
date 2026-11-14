@@ -26,7 +26,7 @@ export interface Skill {
 export const skills: readonly Skill[] = [
     {
         key: "bargain",
-        name: "老顾客",
+        name: "折扣！",
         levels: [
             "你执行“交换”时，费用从 6 降为 5。",
             "你执行“交换”时，费用从 6 降为 4。",

@@ -79,6 +79,7 @@ watch(
 					Date.now(),
 					habitsStates.round,
 					habitsStates.result!,
+					habitsStates.loadoutSummary(),
 				),
 			);
 			resultShow.value = true;
@@ -209,11 +210,13 @@ onBeforeUnmount(() => {
 	window.removeEventListener("resize", measure);
 });
 
-/** 重开一局：重新洗牌并重建格子列表 */
+/** 重开一局：清空本局技能、重新洗牌，并重新进行技能选取 */
 const onRestart = () => {
+	habitsStates.clearLoadout();
 	resetGame();
 	refreshCells();
-	gameStart();
+	habitsStates.beginSkillSelection(true);
+	skillShow.value = true;
 };
 
 /** 技能选取完成，正式开局 */

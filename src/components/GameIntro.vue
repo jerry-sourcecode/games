@@ -13,7 +13,6 @@ import gsap from "gsap";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { GameDetail, GameFact } from "@/types/game";
-import { useHabitsRecord } from "@/habits/data/gameRecord";
 
 const props = defineProps<{ game: GameDetail }>();
 const emit = defineEmits<{ start: [] }>();
@@ -33,8 +32,6 @@ const tabs = [
 type TabId = (typeof tabs)[number]["id"];
 
 const activeTab = ref<TabId>("gameplay");
-
-const habitsRecord = useHabitsRecord();
 
 const accent = computed(() => props.game.accent ?? "#34D399");
 const accentGlow = computed(() => `${accent.value}24`);

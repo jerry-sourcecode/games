@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { useRouter } from "vue-router";
 import ChromaGrid from "@/components/ChromaGrid.vue";
 import { habitGame } from "@/habits/data/habitData";
+import { palmGame } from "@/palm/data/palmGame";
 
 interface GameItem {
 	image: string;
@@ -30,6 +31,17 @@ const games: GameItem[] = [
 		borderColor: habitGame.accent,
 		gradient: habitGame.gradient,
 		url: "/habit",
+	},
+	{
+		image: palmGame.cover,
+		title: palmGame.name,
+		subtitle: palmGame.tagline,
+		tags: palmGame.tags,
+		status: palmGame.status,
+		cta: "开始游戏",
+		borderColor: palmGame.accent,
+		gradient: palmGame.gradient,
+		url: "/palm",
 	},
 ];
 

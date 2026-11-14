@@ -424,16 +424,6 @@ function skipMarkFlip() {
 			</p>
 
 			<p
-				v-if="
-					habits.skillLevel('anchor') > 0 &&
-					habits.anchorAvailable &&
-					habits.anchorTarget == null
-				"
-				class="mb-2 rounded-xl border border-cyan-400/20 bg-cyan-400/[0.06] px-3 py-2 text-[11px] leading-5 text-cyan-100/70">
-				预言：先点击一张坏习惯卡牌，再点「预言」将其指定为敌方下一次标记的落点。
-			</p>
-
-			<p
 				v-if="habits.anchorTarget != null"
 				class="mb-2 rounded-xl border border-cyan-400/25 bg-cyan-400/[0.08] px-3 py-2 text-[11px] leading-5 text-cyan-100/75">
 				预言：敌方下一次标记将落在第
