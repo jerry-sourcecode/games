@@ -60,6 +60,8 @@ export interface PalmSettings {
 	villagers: boolean;
 	/** 要加入牌库的功绩卡编号（1–9），手动逐张勾选 */
 	achievements: number[];
+	/** 允许查看完整的牌库顺序（默认只看牌库顶 3 张） */
+	peekAll: boolean;
 }
 
 export interface PalmSaveFile {
@@ -77,6 +79,7 @@ export const DEFAULT_SETTINGS: PalmSettings = {
 	starter: false,
 	villagers: false,
 	achievements: [],
+	peekAll: false,
 };
 
 function isCondition(value: unknown): value is PalmCondition {
@@ -261,6 +264,7 @@ export const usePalmSave = defineStore("palmSave", () => {
 				...DEFAULT_SETTINGS,
 				starter: parsed?.starter === true,
 				villagers: parsed?.villagers === true,
+				peekAll: parsed?.peekAll === true,
 				achievements: Array.isArray(parsed?.achievements)
 					? parsed.achievements.filter(
 							(n) => Number.isInteger(n) && n >= 1 && n <= 9,

@@ -50,6 +50,8 @@ export interface PalmCardInstance {
 
 /** 回合标记卡的编号 */
 export const TRACKER_NO = 17;
+/** 默认只能查看牌库顶这么多张 */
+export const PEEK_LIMIT = 3;
 /** 每局轮数 */
 export const ROUNDS = 8;
 /** 同时可储存的资源牌上限 */
@@ -312,13 +314,19 @@ export const usePalm = defineStore("palm", () => {
         starter: false,
         villagers: false,
         achievements: [],
+        peekAll: false,
     });
     /** 每次状态变化自增，供自动存档监听 */
     const revision = ref(0);
     let uidSeed = 0;
 
     const topCards = computed(() => deck.value.slice(0, 2));
-    const peekCards = computed(() => deck.value.slice(0, 3));
+    /** 设置里允许看完整顺序时给全部牌，否则只给牌库顶 3 张 */
+    const peekCards = computed(() =>
+        settings.value.peekAll
+            ? deck.value.slice()
+            : deck.value.slice(0, PEEK_LIMIT),
+    );
     /** 回合标记卡实例（用于展示当前轮次的牌面） */
     const trackerCard = computed(
         () => deck.value.find((card) => card.cardNo === TRACKER_NO) ?? null,
@@ -548,6 +556,11 @@ export const usePalm = defineStore("palm", () => {
 
     function pushStep(label: string) {
         steps.value.push({ label, state: captureState() });
+    }
+
+    /** 同步设置（例如从存档恢复后沿用本地的显示选项） */
+    function applySettings(next: Partial<PalmSettings>) {
+        settings.value = { ...settings.value, ...next };
     }
 
     /** 开新局：洗混基础牌（可选村民 / 功绩牌），回合标记卡放在最底 */
@@ -1031,6 +1044,7 @@ export const usePalm = defineStore("palm", () => {
         steps,
         canUndo,
         settings,
+        applySettings,
         start,
         perform,
         discardTop,

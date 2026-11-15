@@ -52,6 +52,21 @@ const starterOption = ref(false);
 const villagerOption = ref(false);
 /** 手动勾选要加入牌库的功绩卡编号 */
 const achievementOption = ref<number[]>([]);
+/** 是否允许查看完整的牌库顺序 */
+const peekAllOption = ref(false);
+
+/** 显示类设置：改完立即生效并保存，不用重开 */
+function setPeekAll(value: boolean) {
+	peekAllOption.value = value;
+	palm.applySettings({ peekAll: value });
+	palmSave.saveSettings({
+		...palmSave.settings,
+		starter: starterOption.value,
+		villagers: villagerOption.value,
+		achievements: [...achievementOption.value],
+		peekAll: value,
+	});
+}
 
 function toggleAchievement(no: number) {
 	achievementOption.value = achievementOption.value.includes(no)
@@ -75,6 +90,8 @@ const priceSheet = ref<{
 const picked = ref<string[]>([]);
 /** 牌库顶 3 张的模态框 */
 const peekShow = ref(false);
+/** 是否开启「显示完整牌库顺序」 */
+const peekAllEnabled = computed(() => palm.settings.peekAll);
 /** 全牌库一览 */
 const deckShow = ref(false);
 /** 全牌库一览里每张牌的宽度 */
@@ -544,6 +561,7 @@ function restart() {
 		starter: starterOption.value,
 		villagers: villagerOption.value,
 		achievements: [...achievementOption.value],
+		peekAll: peekAllOption.value,
 	});
 	closeSheet();
 	peekShow.value = false;
@@ -564,6 +582,7 @@ function openNewGame(force = false) {
 	starterOption.value = palmSave.settings.starter;
 	villagerOption.value = palmSave.settings.villagers;
 	achievementOption.value = [...(palmSave.settings.achievements ?? [])];
+	peekAllOption.value = palmSave.settings.peekAll;
 	settingsShow.value = true;
 }
 
@@ -573,6 +592,7 @@ function startNewGame() {
 		starter: starterOption.value,
 		villagers: villagerOption.value,
 		achievements: [...achievementOption.value],
+		peekAll: peekAllOption.value,
 	});
 	restart();
 }
@@ -638,13 +658,17 @@ onMounted(() => {
 	starterOption.value = palmSave.settings.starter;
 	villagerOption.value = palmSave.settings.villagers;
 	achievementOption.value = [...(palmSave.settings.achievements ?? [])];
+	peekAllOption.value = palmSave.settings.peekAll;
 	// 有存档就接着上局，否则开新局并让玩家选择开局设置
 	const saved = palmSave.load();
+	// 显示类设置不存进对局存档，恢复后要同步到运行中的 store
+	palm.applySettings({ peekAll: palmSave.settings.peekAll });
 	if (!saved || !palm.importSave(saved)) {
 		palm.start({
 			starter: starterOption.value,
 			villagers: villagerOption.value,
 			achievements: [...achievementOption.value],
+			peekAll: peekAllOption.value,
 		});
 		settingsShow.value = true;
 	}
@@ -756,7 +780,7 @@ function saveAndExit() {
 					type="button"
 					class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11.5px] text-white/60 transition-colors hover:border-white/25 hover:text-white focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:outline-none"
 					@click="peekShow = true">
-					牌库顶 3 张
+					{{ peekAllEnabled ? "查看完整顺序" : "牌库顶 3 张" }}
 				</button>
 				<button
 					type="button"
@@ -1113,7 +1137,7 @@ function saveAndExit() {
 							type="button"
 							class="rounded-xl border border-white/12 bg-white/[0.04] px-2.5 py-1.5 text-[11px] text-white/55 transition-colors hover:border-sky-400/40 hover:text-sky-200 focus-visible:ring-2 focus-visible:ring-sky-400/40 focus-visible:outline-none"
 							@click="peekShow = true">
-							牌库顶 3 张
+							{{ peekAllEnabled ? "查看完整顺序" : "牌库顶 3 张" }}
 						</button>
 						<button
 							type="button"
@@ -1419,13 +1443,30 @@ function saveAndExit() {
 			</p>
 		</PalmModal>
 
-		<!-- 牌库顶 3 张 -->
+		<!-- 牌库顶 3 张 / 完整顺序 -->
 		<PalmModal
 			v-model:show="peekShow"
-			title="牌库顶 3 张"
-			:subtitle="`本轮剩余 ${palm.remaining} 张。对局中只能查看牌库顶 3 张。`"
+			:title="peekAllEnabled ? `牌库顺序 · 共 ${palm.peekCards.length} 张` : '牌库顶 3 张'"
+			:subtitle="
+				peekAllEnabled
+					? `本轮剩余 ${palm.remaining} 张。已开启「显示完整牌库顺序」，下面按先后排列。`
+					: `本轮剩余 ${palm.remaining} 张。对局中只能查看牌库顶 3 张。`
+			"
 			max-width="1280px">
-			<div class="grid gap-3 sm:grid-cols-3">
+			<div
+				class="grid gap-3"
+				:class="
+					peekAllEnabled
+						? 'max-h-[64vh] overflow-y-auto pr-1'
+						: 'sm:grid-cols-3'
+				"
+				:style="
+					peekAllEnabled
+						? {
+								gridTemplateColumns: `repeat(auto-fill, ${deckCardWidth}px)`,
+							}
+						: undefined
+				">
 				<figure
 					v-for="(card, index) in palm.peekCards"
 					:key="card.uid"
@@ -1445,7 +1486,7 @@ function saveAndExit() {
 						:card-no="card.cardNo"
 						:source="card.source"
 						:area="card.area"
-						:width="showcaseWidth" />
+						:width="peekAllEnabled ? deckCardWidth - 24 : showcaseWidth" />
 
 					<div
 						class="flex flex-wrap items-center justify-center gap-1.5">
@@ -1690,6 +1731,34 @@ function saveAndExit() {
 					</label>
 				</div>
 			</div>
+
+			<label
+				class="mt-2 flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-2.5 transition-colors"
+				:class="
+					peekAllOption
+						? 'border-emerald-400/45 bg-emerald-400/[0.08]'
+						: 'border-white/10 bg-white/[0.03] hover:border-white/25'
+				">
+				<input
+					:checked="peekAllOption"
+					type="checkbox"
+					class="mt-0.5 h-4 w-4 shrink-0 accent-emerald-400"
+					@change="
+						setPeekAll(
+							($event.target as HTMLInputElement).checked,
+						)
+					" />
+				<span class="min-w-0">
+					<span class="block text-[12px] font-medium text-white/85">
+						显示完整牌库顺序
+					</span>
+					<span
+						class="mt-1 block text-[10.5px] leading-4 text-white/40">
+						开启后「牌库顶」按钮会展示整副牌的先后顺序，而不是只看牌库顶
+						3 张。会让游戏变简单，按需开启。改动立即生效。
+					</span>
+				</span>
+			</label>
 
 			<div class="mt-4 flex items-center justify-end gap-2">
 				<button
