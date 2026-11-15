@@ -5,7 +5,11 @@ import PalmCost from "./component/palm-cost.vue";
 import PalmModal from "./component/palm-modal.vue";
 import PalmResources from "./component/palm-resources.vue";
 import type { PalmCondition, PalmItem } from "./component/palm-chips";
-import { ACHIEVEMENT_HINT, achievementNos } from "./data/achievement";
+import {
+	ACHIEVEMENT_HINT,
+	ACHIEVEMENT_LAYOUT,
+	achievementNos,
+} from "./data/achievement";
 import { gradeOf, usePalmRecord } from "./data/palmRecord";
 import { usePalmSave } from "./data/palmSave";
 import {
@@ -106,19 +110,26 @@ const VILLAGER_AREA_NAME: Record<PalmArea, string> = {
 	4: "村民面",
 };
 
-const ACHIEVEMENT_AREA_NAME: Record<PalmArea, string> = {
-	1: "效果面",
-	2: "效果面",
+/** 四朝向功绩卡：正面正向不参与玩法，从正面 180° 起手 */
+const ACHIEVEMENT_QUAD_AREA_NAME: Record<PalmArea, string> = {
+	1: "正面 正向",
+	2: "正面 180°",
 	3: "效果面",
-	4: "效果面 倒置",
+	4: "效果面 180°",
 };
 
-const areaName = (card: PalmCardSource, area: PalmArea) =>
-	card === "villager"
-		? VILLAGER_AREA_NAME[area]
-		: card === "achievement"
-			? ACHIEVEMENT_AREA_NAME[area]
-			: AREA_NAME[area];
+const areaName = (
+	card: { source: PalmCardSource; cardNo: number },
+	area: PalmArea,
+) => {
+	if (card.source === "villager") return VILLAGER_AREA_NAME[area];
+	if (card.source === "achievement") {
+		return ACHIEVEMENT_LAYOUT[card.cardNo] === "quad"
+			? ACHIEVEMENT_QUAD_AREA_NAME[area]
+			: "效果面";
+	}
+	return AREA_NAME[area];
+};
 
 /** 哪些能力的机制已经实装（其余只在牌面上展示文字） */
 const ABILITY_READY: Record<PalmAbility["id"], boolean> = {
@@ -156,7 +167,7 @@ const villageCards = computed(() =>
 const previewSubtitle = computed(() => {
 	const current = previewCard.value;
 	if (!current) return "";
-	const name = areaName(current.card.source, current.card.area);
+	const name = areaName(current.card, current.card.area);
 	if (current.card.source === "villager") {
 		return `村民卡只有两面，当前位于「${name}」。`;
 	}
@@ -249,7 +260,7 @@ const startCandidates = computed(() => {
 	return list.map((card) => ({
 		card,
 		label: labelOf(card),
-		area: areaName(card.source, card.area),
+		area: areaName(card, card.area),
 	}));
 });
 
@@ -1136,7 +1147,7 @@ function saveAndExit() {
 						<span class="text-[10px] text-white/30">
 							{{
 								previewCard
-									? areaName(previewCard.card.source, item.area)
+									? areaName(previewCard.card, item.area)
 									: ""
 							}}
 						</span>
@@ -1475,7 +1486,7 @@ function saveAndExit() {
 							当前 ·
 							{{
 								transformCard
-									? areaName(transformCard.source, transform.from)
+									? areaName(transformCard, transform.from)
 									: ""
 							}}
 						</figcaption>
@@ -1498,7 +1509,7 @@ function saveAndExit() {
 							变更后 ·
 							{{
 								transformCard
-									? areaName(transformCard.source, transform.to)
+									? areaName(transformCard, transform.to)
 									: ""
 							}}
 						</figcaption>

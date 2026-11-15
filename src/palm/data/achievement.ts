@@ -2,6 +2,16 @@ import { Palm } from "../modal/modal";
 import type { PalmArea } from "../game/palmStore";
 
 /**
+ * 四朝向功绩卡 a 面的上下分界（占卡面高度的比例）。
+ * a 面并不是五五分：上半印「功绩」小旗 + 标题 + 解锁条件，比下半窄。
+ */
+export const ACHIEVEMENT_QUAD_SPLIT: Record<number, number> = {
+	4: 0.3144,
+	5: 0.3465,
+	6: 0.3465,
+};
+
+/**
  * 功绩卡（ach-1 ~ ach-9）。
  *
  * 每张卡的第一面（a 面）印的是解锁条件，本作不需要解锁流程，因此直接跳过：

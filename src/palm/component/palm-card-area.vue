@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { PalmArea, PalmCardSource } from "../game/palmStore";
-import { ACHIEVEMENT_LAYOUT } from "../data/achievement";
+import {
+	ACHIEVEMENT_LAYOUT,
+	ACHIEVEMENT_QUAD_SPLIT,
+} from "../data/achievement";
 
 /** 卡面扫描图的宽高比（1978 × 2760） */
 const IMG_W = 1978;
@@ -14,7 +17,7 @@ interface Crop {
 	rotate: boolean;
 }
 
-/** 基础牌与四朝向功绩牌：两面各平分上下两半 */
+/** 基础牌与四朝向功绩牌的 b 面：上下平分 */
 const FULL_CROP: Record<PalmArea, Crop> = {
 	1: { top: 0, height: 0.5, rotate: false },
 	2: { top: 0.5, height: 0.5, rotate: true },
@@ -33,11 +36,21 @@ const VILLAGER_CROP: Record<PalmArea, Crop> = {
 	4: { top: 0.3, height: 0.7, rotate: true },
 };
 
-/**
- * 单朝向功绩卡整张卡就是一个朝向，b 面整幅铺满；
- * 四朝向功绩卡的 a 面是解锁条件，只用 b 面的上下两半。
- */
+/** 单朝向功绩卡整张卡就是一个朝向，b 面整幅铺满 */
 const ACHIEVEMENT_SINGLE_CROP: Crop = { top: 0, height: 1, rotate: false };
+
+/**
+ * 四朝向功绩卡 a 面：上半（朝向 1，解锁条件）比下半窄，
+ * 分界位置按牌面实测存在数据里。
+ */
+function quadFaceCrop(cardNo: number, area: PalmArea): Crop {
+	const split = ACHIEVEMENT_QUAD_SPLIT[cardNo] ?? 0.3333;
+	return area <= 2
+		? area === 1
+			? { top: 0, height: split, rotate: false }
+			: { top: split, height: 1 - split, rotate: true }
+		: FULL_CROP[area];
+}
 
 const props = withDefaults(
 	defineProps<{
@@ -52,14 +65,16 @@ const props = withDefaults(
 
 const crop = computed<Crop>(() => {
 	if (props.source === "villager") return VILLAGER_CROP[props.area];
-	if (props.source === "achievement")
-		return ACHIEVEMENT_LAYOUT[props.cardNo] === "single"
-			? ACHIEVEMENT_SINGLE_CROP
-			: FULL_CROP[props.area];
+	if (props.source === "achievement") {
+		if (ACHIEVEMENT_LAYOUT[props.cardNo] === "single") {
+			return ACHIEVEMENT_SINGLE_CROP;
+		}
+		return quadFaceCrop(props.cardNo, props.area);
+	}
 	return FULL_CROP[props.area];
 });
 
-/** 村民卡两个朝向都在 a 面，哨站面不参与玩法；功绩卡只用 b 面的效果面 */
+/** 村民卡两个朝向都在 a 面，哨站面不参与玩法 */
 const side = computed(() =>
 	props.source === "basic" ? (props.area <= 2 ? "a" : "b") : "a",
 );
@@ -67,8 +82,14 @@ const side = computed(() =>
 const src = computed(() => {
 	if (props.source === "villager")
 		return `/PalmIsland/bvi-${props.cardNo}${side.value}.png`;
-	if (props.source === "achievement")
-		return `/PalmIsland/ach-${props.cardNo}b.png`;
+	if (props.source === "achievement") {
+		// 四朝向卡的朝向 1/2 在 a 面，3/4 在 b 面；单朝向卡整张 b 面就是一个朝向
+		if (ACHIEVEMENT_LAYOUT[props.cardNo] !== "quad") {
+			return `/PalmIsland/ach-${props.cardNo}b.png`;
+		}
+		const face = props.area <= 2 ? "a" : "b";
+		return `/PalmIsland/ach-${props.cardNo}${face}.png`;
+	}
 	return `/PalmIsland/b${props.cardNo}-${side.value}.png`;
 });
 
