@@ -38,11 +38,16 @@ export namespace Palm {
          * gain 是这张牌生产后作为资源提供的内容；
          * wild 表示产出万能资源（支付时可当作任意一种资源）。
          */
-        produce?: { gain: Condition, cons?: Condition[], wild?: number };
+        produce?: { gain: Condition, cons?: Condition[], wild?: number, once?: boolean };
         repu?: number = 0;
         rotate?: ConditionComp = new ConditionComp;
         flip?: ConditionComp = new ConditionComp;
         ability?: Ability;
+        /**
+         * 额外门槛：除了资源之外还需要满足的条件。
+         * housesUpgraded = 需要几张「房屋」已经升级到朝向 3 或更高。
+         */
+        require?: { housesUpgraded?: number };
         /** 未实装能力的牌面说明 */
         note?: string;
     }

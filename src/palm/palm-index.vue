@@ -5,6 +5,7 @@ import PalmCost from "./component/palm-cost.vue";
 import PalmModal from "./component/palm-modal.vue";
 import PalmResources from "./component/palm-resources.vue";
 import type { PalmCondition, PalmItem } from "./component/palm-chips";
+import { ACHIEVEMENT_HINT, achievementNos } from "./data/achievement";
 import { gradeOf, usePalmRecord } from "./data/palmRecord";
 import { usePalmSave } from "./data/palmSave";
 import {
@@ -12,6 +13,7 @@ import {
 	STARTER_BONUS,
 	TRACKER_NO,
 	actionCostOf,
+	abilityOf,
 	contentAt,
 	flippedArea,
 	gainAt,
@@ -44,6 +46,14 @@ const settingsShow = ref(false);
 const starterOption = ref(false);
 /** 村民扩展开关 */
 const villagerOption = ref(false);
+/** 手动勾选要加入牌库的功绩卡编号 */
+const achievementOption = ref<number[]>([]);
+
+function toggleAchievement(no: number) {
+	achievementOption.value = achievementOption.value.includes(no)
+		? achievementOption.value.filter((item) => item !== no)
+		: [...achievementOption.value, no].sort((a, b) => a - b);
+}
 
 const boardRef = ref<HTMLElement | null>(null);
 const cardWidth = ref(280);
@@ -64,7 +74,9 @@ const peekShow = ref(false);
 /** 全牌库一览 */
 const deckShow = ref(false);
 /** 全牌库一览里每张牌的宽度 */
-const deckCardWidth = ref(120);/** 正在预览其余朝向的牌（按牌库顶下标 0 / 1） */
+const deckCardWidth = ref(120);
+/** 开局效果候选牌的宽度 */
+const startCardWidth = ref(160);/** 正在预览其余朝向的牌（按牌库顶下标 0 / 1） */
 const previewIndex = ref<number | null>(null);
 /** 旋转 / 翻面的确认框 */
 const transform = ref<{
@@ -94,8 +106,19 @@ const VILLAGER_AREA_NAME: Record<PalmArea, string> = {
 	4: "村民面",
 };
 
+const ACHIEVEMENT_AREA_NAME: Record<PalmArea, string> = {
+	1: "效果面",
+	2: "效果面",
+	3: "效果面",
+	4: "效果面 倒置",
+};
+
 const areaName = (card: PalmCardSource, area: PalmArea) =>
-	card === "villager" ? VILLAGER_AREA_NAME[area] : AREA_NAME[area];
+	card === "villager"
+		? VILLAGER_AREA_NAME[area]
+		: card === "achievement"
+			? ACHIEVEMENT_AREA_NAME[area]
+			: AREA_NAME[area];
 
 /** 哪些能力的机制已经实装（其余只在牌面上展示文字） */
 const ABILITY_READY: Record<PalmAbility["id"], boolean> = {
@@ -134,9 +157,17 @@ const previewSubtitle = computed(() => {
 	const current = previewCard.value;
 	if (!current) return "";
 	const name = areaName(current.card.source, current.card.area);
-	return current.card.source === "villager"
-		? `村民卡只有两面，当前位于「${name}」。`
-		: `当前位于「${name}」，下面是另外 3 个朝向。`;
+	if (current.card.source === "villager") {
+		return `村民卡只有两面，当前位于「${name}」。`;
+	}
+	const rest = otherAreasOf(current.card).length;
+	if (current.card.source === "achievement") {
+		// 功绩卡的 a 面是解锁条件，本作不参与玩法
+		return rest > 0
+			? `功绩卡当前位于「${name}」，下面是另外 ${rest} 个朝向。`
+			: `功绩卡只有这一面效果，当前位于「${name}」。`;
+	}
+	return `当前位于「${name}」，下面是另外 ${rest} 个朝向。`;
 });
 
 /** 牌库顶两张的展示数据 */
@@ -162,17 +193,81 @@ function deckCardInfo(card: PalmCardInstance): boolean {
 	);
 }
 
-/** 全牌库一览：按牌号排序，基础牌 1–16 在前，村民牌 1–7 在后 */
+/**
+ * 全牌库一览：按牌号排序，基础牌 1–16 在前，村民牌 1–7 其后，功绩牌最后。
+ * 已结算的牌不再参与取牌循环，但仍然列在这里。
+ */
 const deckCards = computed(() =>
-	palm.deck
+	[...palm.deck, ...palm.retiredCards]
 		.filter((card) => card.cardNo !== TRACKER_NO)
 		.slice()
 		.sort((a, b) => {
 			const rank = (card: PalmCardInstance) =>
-				card.source === "villager" ? 100 + card.cardNo : card.cardNo;
+				card.source === "villager"
+					? 100 + card.cardNo
+					: card.source === "achievement"
+						? 200 + card.cardNo
+						: card.cardNo;
 			return rank(a) - rank(b);
 		}),
 );
+
+/** 这张牌是否已经结算完毕、退出了取牌循环 */
+const isRetired = (card: PalmCardInstance) =>
+	palm.retiredCards.some((item) => item.uid === card.uid);
+
+/** 开局效果：当前选中的牌 */
+const startPick = ref<string | null>(null);
+
+const startSubtitle = computed(() => {
+	const task = palm.startTask;
+	if (!task) return "";
+	const action =
+		task.kind === "upgrade"
+			? "先选一张牌，再决定让它在同面旋转 180° 还是翻到另一面。"
+			: "选出任意一张牌，它会被放到牌库的最前面（下一次就会用到它）。";
+	const rest = palm.startTasks.length;
+	return `还有 ${rest} 项开局效果待结算 · ${action} 结算后这张功绩卡会退出取牌循环，但仍留在牌库列表里。`;
+});
+
+/** 开局效果的候选牌 */
+const startCandidates = computed(() => {
+	const task = palm.startTask;
+	if (!task) return [];
+	const list =
+		task.kind === "upgrade"
+			? palm.deck.filter(
+					(card) =>
+						card.source === "basic" &&
+						task.cardNos.includes(card.cardNo),
+				)
+			: palm.deck.filter(
+					(card) =>
+						card.cardNo !== TRACKER_NO &&
+						card.source !== "achievement",
+				);
+	return list.map((card) => ({
+		card,
+		label: labelOf(card),
+		area: areaName(card.source, card.area),
+	}));
+});
+
+function pickStartCard(uid: string) {
+	startPick.value = startPick.value === uid ? null : uid;
+}
+
+function applyStartUpgrade(kind: "rotate" | "flip") {
+	const uid = startPick.value;
+	if (!uid) return;
+	if (palm.resolveStartUpgrade(uid, kind)) startPick.value = null;
+}
+
+function applyStartMove() {
+	const uid = startPick.value;
+	if (!uid) return;
+	if (palm.resolveStartMove(uid)) startPick.value = null;
+}
 
 /** 旋转 / 翻面确认框里展示的那张牌 */
 const transformCard = computed(() => {
@@ -295,7 +390,23 @@ function actionsOf(card: PalmCardInstance | undefined): ActionView[] {
 	for (const kind of order) {
 		const raw = actionCostOf(card.cardNo, card.area, kind, card.source);
 		const cost = palm.costOf(card, kind);
-		if (cost === null) continue;
+		if (cost === null) {
+			// 被牌面条件挡住时仍然列出来，让玩家知道为什么用不了
+			const reason = palm.blockedReason(card, kind);
+			if (raw !== null && reason) {
+				list.push({
+					kind,
+					cost: [],
+					affordable: false,
+					blocked: true,
+					blockReason: reason,
+					gain: {},
+					wild: 0,
+					showDiscount: false,
+				});
+			}
+			continue;
+		}
 		const full = kind === "produce" && palm.storedCount >= palm.storeLimit;
 		const affordable = palm.canAfford(cost) && !full;
 		list.push({
@@ -422,6 +533,7 @@ function restart() {
 	palm.start({
 		starter: starterOption.value,
 		villagers: villagerOption.value,
+		achievements: [...achievementOption.value],
 	});
 	closeSheet();
 	peekShow.value = false;
@@ -441,6 +553,7 @@ function openNewGame(force = false) {
 	restartConfirm.value = false;
 	starterOption.value = palmSave.settings.starter;
 	villagerOption.value = palmSave.settings.villagers;
+	achievementOption.value = [...(palmSave.settings.achievements ?? [])];
 	settingsShow.value = true;
 }
 
@@ -449,6 +562,7 @@ function startNewGame() {
 	palmSave.saveSettings({
 		starter: starterOption.value,
 		villagers: villagerOption.value,
+		achievements: [...achievementOption.value],
 	});
 	restart();
 }
@@ -496,6 +610,12 @@ function measure() {
 		140,
 		Math.min(190, Math.floor((wide - 60 - 8 * 5) / 6)),
 	);
+
+	// 开局效果：候选牌要看清朝向，一屏 5 列
+	startCardWidth.value = Math.max(
+		150,
+		Math.min(220, Math.floor((Math.min(1100, window.innerWidth - 48) - 60) / 5)),
+	);
 }
 
 let observer: ResizeObserver | undefined;
@@ -504,12 +624,14 @@ onMounted(() => {
 	palmSave.loadSettings();
 	starterOption.value = palmSave.settings.starter;
 	villagerOption.value = palmSave.settings.villagers;
+	achievementOption.value = [...(palmSave.settings.achievements ?? [])];
 	// 有存档就接着上局，否则开新局并让玩家选择开局设置
 	const saved = palmSave.load();
 	if (!saved || !palm.importSave(saved)) {
 		palm.start({
 			starter: starterOption.value,
 			villagers: villagerOption.value,
+			achievements: [...achievementOption.value],
 		});
 		settingsShow.value = true;
 	}
@@ -788,6 +910,7 @@ function saveAndExit() {
 							</button>
 
 							<button
+								v-if="view.otherCount > 0"
 								type="button"
 								class="rounded-xl border border-dashed border-white/12 px-2.5 py-1.5 text-[11px] text-white/45 transition-colors hover:border-sky-400/40 hover:text-sky-200 focus-visible:ring-2 focus-visible:ring-sky-400/40 focus-visible:outline-none"
 								:aria-haspopup="'dialog'"
@@ -827,7 +950,12 @@ function saveAndExit() {
 						<li
 							v-for="card in villageCards"
 							:key="card.uid"
-							class="rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-1.5">
+							class="rounded-xl border px-2.5 py-1.5"
+							:class="
+								card.activated
+									? 'border-emerald-400/40 bg-emerald-400/[0.08]'
+									: 'border-white/10 bg-white/[0.03]'
+							">
 							<div class="flex items-center justify-between gap-2">
 								<span class="text-[11.5px] text-white/70">
 									{{ labelOf(card) }}
@@ -854,6 +982,21 @@ function saveAndExit() {
 										card.source,
 									)?.note
 								}}
+							</p>
+							<button
+								v-if="
+									abilityOf(card) &&
+									palm.activateReason(card) === null
+								"
+								type="button"
+								class="mt-1.5 w-full rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-2 py-1 text-[10.5px] font-medium text-emerald-100 transition-colors hover:bg-emerald-400/20 focus-visible:ring-2 focus-visible:ring-emerald-400/40 focus-visible:outline-none"
+								@click="palm.activateVillager(card.uid)">
+								发动技能
+							</button>
+							<p
+								v-else-if="card.activated"
+								class="mt-1 text-[10px] text-emerald-200/70">
+								本轮已发动 · 本轮结束前持续生效
 							</p>
 						</li>
 					</ul>
@@ -1068,11 +1211,125 @@ function saveAndExit() {
 			</p>
 		</PalmModal>
 
+		<!-- 开局效果结算 -->
+		<PalmModal
+			:show="palm.startTask !== null"
+			:title="
+				palm.startTask
+					? `开局效果 · ${palm.startTask.title}`
+					: '开局效果'
+			"
+			:subtitle="startSubtitle"
+			:closable="false"
+			max-width="1100px">
+			<div v-if="palm.startTask" class="space-y-3">
+				<p
+					class="rounded-xl border border-violet-400/25 bg-violet-400/[0.08] px-3 py-2 text-[12px] leading-5 text-violet-100/80">
+					{{ palm.startTask.note }}
+				</p>
+
+				<div
+					class="grid max-h-[52vh] gap-2 overflow-y-auto pr-1"
+					:style="{
+						gridTemplateColumns: `repeat(auto-fill, ${startCardWidth}px)`,
+					}">
+					<button
+						v-for="item in startCandidates"
+						:key="item.card.uid"
+						type="button"
+						class="flex flex-col items-center gap-1 rounded-xl border p-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400/40 focus-visible:outline-none"
+						:class="
+							startPick === item.card.uid
+								? 'border-emerald-400/60 bg-emerald-400/[0.09]'
+								: 'border-white/10 bg-white/[0.02] hover:border-white/25'
+						"
+						@click="pickStartCard(item.card.uid)">
+						<span
+							class="flex w-full items-center justify-between gap-1">
+							<span
+								class="truncate text-[10px] font-medium text-white/70">
+								{{ item.label }}
+							</span>
+							<span class="shrink-0 text-[9px] text-white/35">
+								{{ item.area }}
+							</span>
+						</span>
+						<PalmCardArea
+							class="border border-white/10"
+							:card-no="item.card.cardNo"
+							:source="item.card.source"
+							:area="item.card.area"
+							:width="startCardWidth - 12" />
+						<span
+							class="flex w-full flex-wrap items-center justify-center gap-1">
+							<PalmResources
+								:items="gainOf(item.card)"
+								:wild="wildOf(item.card)"
+								size="xs" />
+							<span
+								v-if="repuOf(item.card) !== 0"
+								class="rounded border border-amber-300/35 bg-amber-400/15 px-1 text-[9.5px] font-medium tabular-nums text-amber-100">
+								★ {{ repuOf(item.card) }}
+							</span>
+						</span>
+					</button>
+				</div>
+
+				<div
+					class="flex flex-wrap items-center justify-end gap-2 border-t border-white/10 pt-3">
+					<span
+						v-if="!startPick"
+						class="mr-auto text-[11px] text-white/35">
+						先选一张牌
+					</span>
+					<template v-if="palm.startTask.kind === 'upgrade'">
+						<button
+							type="button"
+							class="rounded-xl border px-3 py-2 text-[12px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-amber-400/40 focus-visible:outline-none"
+							:class="
+								startPick
+									? 'border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20'
+									: 'cursor-not-allowed border-white/10 bg-white/[0.02] text-white/30'
+							"
+							:disabled="!startPick"
+							@click="applyStartUpgrade('rotate')">
+							旋转 180°
+						</button>
+						<button
+							type="button"
+							class="rounded-xl border px-3 py-2 text-[12px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-sky-400/40 focus-visible:outline-none"
+							:class="
+								startPick
+									? 'border-sky-400/40 bg-sky-400/10 text-sky-100 hover:bg-sky-400/20'
+									: 'cursor-not-allowed border-white/10 bg-white/[0.02] text-white/30'
+							"
+							:disabled="!startPick"
+							@click="applyStartUpgrade('flip')">
+							翻面
+						</button>
+					</template>
+					<button
+						v-else
+						type="button"
+						class="rounded-xl border px-3 py-2 text-[12px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400/40 focus-visible:outline-none"
+						:class="
+							startPick
+								? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/20'
+								: 'cursor-not-allowed border-white/10 bg-white/[0.02] text-white/30'
+						"
+						:disabled="!startPick"
+						@click="applyStartMove()">
+						移到牌库最前面
+					</button>
+				</div>
+			</div>
+		</PalmModal>
+
 		<!-- 全牌库一览 -->
 		<PalmModal
 			v-model:show="deckShow"
 			:title="`牌库 · 全部 ${deckCards.length} 张`"
-			subtitle="按牌号排列：基础牌 1–16，之后是村民牌。带「资源」标记的已横置为资源。"
+			subtitle="按牌号排列：基础牌 1–16，之后是村民牌、功绩牌。带「资源」标记的已横置为资源，「已结算」的牌已退出取牌循环。"
 			max-width="1280px">
 			<div class="max-h-[64vh] overflow-y-auto pr-1">
 				<div
@@ -1085,9 +1342,11 @@ function saveAndExit() {
 						:key="card.uid"
 						class="flex flex-col items-center gap-1 rounded-xl border p-1.5"
 						:class="
-							card.stored
-								? 'border-emerald-400/35 bg-emerald-400/[0.06]'
-								: 'border-white/10 bg-white/[0.02]'
+							isRetired(card)
+								? 'border-white/10 bg-white/[0.01] opacity-55'
+								: card.stored
+									? 'border-emerald-400/35 bg-emerald-400/[0.06]'
+									: 'border-white/10 bg-white/[0.02]'
 						">
 						<figcaption
 							class="flex w-full items-center justify-between gap-1">
@@ -1101,7 +1360,12 @@ function saveAndExit() {
 								{{ labelOf(card) }}
 							</span>
 							<span
-								v-if="card.stored"
+								v-if="isRetired(card)"
+								class="shrink-0 rounded border border-white/20 bg-white/10 px-1 text-[9px] text-white/60">
+								已结算
+							</span>
+							<span
+								v-else-if="card.stored"
 								class="shrink-0 rounded border border-emerald-300/40 bg-emerald-400/15 px-1 text-[9px] text-emerald-100">
 								资源
 							</span>
@@ -1118,6 +1382,7 @@ function saveAndExit() {
 							v-if="deckCardInfo(card)"
 							class="mt-auto flex flex-wrap items-center justify-center gap-1">
 							<PalmResources
+								v-if="!isRetired(card)"
 								:items="gainOf(card)"
 								:wild="wildOf(card)"
 								size="xs" />
@@ -1314,7 +1579,7 @@ function saveAndExit() {
 			:show="settingsShow"
 			title="新的一局"
 			subtitle="开局设置会保存在本地，之后的新局沿用。"
-			max-width="520px"
+			max-width="640px"
 			@update:show="settingsShow = false">
 			<label
 				class="flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-2.5 transition-colors"
@@ -1356,10 +1621,52 @@ function saveAndExit() {
 						启用村民卡（bvi-1 ~ 7）
 					</span>
 					<span class="mt-1 block text-[10.5px] leading-4 text-white/40">
-						7 张村民牌洗入牌库，本轮剩余张数会相应变多。用「旋转」付钱招募，村民面提供 ★ 与常驻能力；村民卡只有招募面与村民面两个朝向。
+						每局从 7 张村民里随机抽 3 张洗入牌库。用「旋转」付钱招募，村民面提供 ★ 与可发动的技能；村民卡只有招募面与村民面两个朝向。
 					</span>
 				</span>
 			</label>
+
+			<div class="mt-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+				<div class="flex items-center justify-between gap-2">
+					<span class="text-[12px] font-medium text-white/85">
+						功绩卡
+					</span>
+					<span
+						class="text-[10.5px] text-white/35 tabular-nums">
+						已选 {{ achievementOption.length }} / 9
+					</span>
+				</div>
+				<p class="mt-1 text-[10.5px] leading-4 text-white/40">
+					勾选的功绩牌会洗入牌库（相当于额外卡牌）。不勾选则保持标准牌库。
+				</p>
+				<div class="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+					<label
+						v-for="no in achievementNos"
+						:key="no"
+						class="flex cursor-pointer items-start gap-2 rounded-xl border px-2 py-1.5 transition-colors"
+						:class="
+							achievementOption.includes(no)
+								? 'border-amber-400/45 bg-amber-400/[0.08]'
+								: 'border-white/10 bg-white/[0.02] hover:border-white/25'
+						">
+						<input
+							:checked="achievementOption.includes(no)"
+							type="checkbox"
+							class="mt-0.5 h-3.5 w-3.5 shrink-0 accent-amber-400"
+							@change="toggleAchievement(no)" />
+						<span class="min-w-0">
+							<span
+								class="block text-[11px] font-medium text-white/80">
+								{{ labelOf({ cardNo: no, source: 'achievement' }) }}
+							</span>
+							<span
+								class="mt-0.5 block text-[10px] leading-3.5 text-white/35">
+								{{ ACHIEVEMENT_HINT[no] }}
+							</span>
+						</span>
+					</label>
+				</div>
+			</div>
 
 			<div class="mt-4 flex items-center justify-end gap-2">
 				<button

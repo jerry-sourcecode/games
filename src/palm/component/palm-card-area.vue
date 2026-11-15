@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { PalmArea, PalmCardSource } from "../game/palmStore";
+import { ACHIEVEMENT_LAYOUT } from "../data/achievement";
 
 /** 卡面扫描图的宽高比（1978 × 2760） */
 const IMG_W = 1978;
@@ -13,8 +14,8 @@ interface Crop {
 	rotate: boolean;
 }
 
-/** 基础牌：a / b 面各平分上下两半 */
-const BASIC_CROP: Record<PalmArea, Crop> = {
+/** 基础牌与四朝向功绩牌：两面各平分上下两半 */
+const FULL_CROP: Record<PalmArea, Crop> = {
 	1: { top: 0, height: 0.5, rotate: false },
 	2: { top: 0.5, height: 0.5, rotate: true },
 	3: { top: 0, height: 0.5, rotate: false },
@@ -32,6 +33,12 @@ const VILLAGER_CROP: Record<PalmArea, Crop> = {
 	4: { top: 0.3, height: 0.7, rotate: true },
 };
 
+/**
+ * 单朝向功绩卡整张卡就是一个朝向，b 面整幅铺满；
+ * 四朝向功绩卡的 a 面是解锁条件，只用 b 面的上下两半。
+ */
+const ACHIEVEMENT_SINGLE_CROP: Crop = { top: 0, height: 1, rotate: false };
+
 const props = withDefaults(
 	defineProps<{
 		cardNo: number;
@@ -43,21 +50,27 @@ const props = withDefaults(
 	{ source: "basic", width: 240 },
 );
 
-const crop = computed(
-	() =>
-		(props.source === "villager" ? VILLAGER_CROP : BASIC_CROP)[props.area],
-);
+const crop = computed<Crop>(() => {
+	if (props.source === "villager") return VILLAGER_CROP[props.area];
+	if (props.source === "achievement")
+		return ACHIEVEMENT_LAYOUT[props.cardNo] === "single"
+			? ACHIEVEMENT_SINGLE_CROP
+			: FULL_CROP[props.area];
+	return FULL_CROP[props.area];
+});
 
-/** 村民卡两个朝向都在 a 面，哨站面不参与玩法 */
+/** 村民卡两个朝向都在 a 面，哨站面不参与玩法；功绩卡只用 b 面的效果面 */
 const side = computed(() =>
-	props.source === "villager" ? "a" : props.area <= 2 ? "a" : "b",
+	props.source === "basic" ? (props.area <= 2 ? "a" : "b") : "a",
 );
 
-const src = computed(() =>
-	props.source === "villager"
-		? `/PalmIsland/bvi-${props.cardNo}${side.value}.png`
-		: `/PalmIsland/b${props.cardNo}-${side.value}.png`,
-);
+const src = computed(() => {
+	if (props.source === "villager")
+		return `/PalmIsland/bvi-${props.cardNo}${side.value}.png`;
+	if (props.source === "achievement")
+		return `/PalmIsland/ach-${props.cardNo}b.png`;
+	return `/PalmIsland/b${props.cardNo}-${side.value}.png`;
+});
 
 const boxStyle = computed(() => ({
 	width: `${props.width}px`,
@@ -65,11 +78,15 @@ const boxStyle = computed(() => ({
 }));
 
 /** 把 crop 区域铺满容器：高度放大到 1/height，再用纵向位移抵消顶部偏移 */
-const frameStyle = computed(() => ({
-	backgroundImage: `url("${src.value}")`,
-	backgroundSize: `100% ${(100 / crop.value.height).toFixed(4)}%`,
-	backgroundPosition: `0% ${((crop.value.top / (1 - crop.value.height)) * 100).toFixed(4)}%`,
-}));
+const frameStyle = computed(() => {
+	const { top, height } = crop.value;
+	const offset = height >= 1 ? 0 : (top / (1 - height)) * 100;
+	return {
+		backgroundImage: `url("${src.value}")`,
+		backgroundSize: `100% ${(100 / height).toFixed(4)}%`,
+		backgroundPosition: `0% ${offset.toFixed(4)}%`,
+	};
+});
 
 /** 倒置朝向靠外层旋转摆正，避免与过渡动画的 transform 冲突 */
 const spinStyle = computed(() => ({

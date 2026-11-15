@@ -1,13 +1,21 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
-import { BasicCards } from "../data/data";
+import {
+    AchievementCards,
+    achievementAreas,
+    achievementNos,
+} from "../data/achievement";
+import { BasicCardNames, BasicCards } from "../data/data";
 import { VillagerCards, villagerNos } from "../data/villager";
 import type {
+    PalmCardSnapshot,
     PalmSaveFile,
     PalmSettings,
+    PalmStartTask,
     PalmState,
     PalmStep,
 } from "../data/palmSave";
+import { isState } from "../data/palmSave";
 import type { PalmReplayStep } from "../data/palmRecord";
 import type { Palm } from "../modal/modal";
 
@@ -15,7 +23,7 @@ import type { Palm } from "../modal/modal";
 export type PalmArea = 1 | 2 | 3 | 4;
 export type PalmActionKind = "produce" | "rotate" | "flip";
 /** 牌来自基础牌组还是村民扩展 */
-export type PalmCardSource = "basic" | "villager";
+export type PalmCardSource = "basic" | "villager" | "achievement";
 export type PalmItem = Palm.Item;
 export type PalmCondition = Palm.Condition;
 export type PalmCost = Palm.Condition[];
@@ -33,6 +41,10 @@ export interface PalmCardInstance {
     resource?: PalmCondition;
     /** 生产出的万能资源数量（支付时可当作任意一种资源） */
     wild?: number;
+    /** 「每场一次」的效果已经用掉 */
+    used?: boolean;
+    /** 村民技能本轮已经发动过 */
+    activated?: boolean;
 }
 
 /** 回合标记卡的编号 */
@@ -41,6 +53,8 @@ export const TRACKER_NO = 17;
 export const ROUNDS = 8;
 /** 同时可储存的资源牌上限 */
 export const MAX_STORED = 4;
+/** 村民扩展：每局从 7 张村民里随机抽这么多张加入牌库 */
+export const VILLAGER_DRAW = 3;
 /** 开局补给：1 石 + 1 鱼 + 1 木 */
 export const STARTER_BONUS: PalmCondition = { Rock: 1, Fish: 1, Log: 1 };
 
@@ -48,13 +62,22 @@ const cardNos = Object.keys(BasicCards)
     .map(Number)
     .sort((a, b) => a - b);
 
+const CARDS_BY_SOURCE: Record<
+    PalmCardSource,
+    Record<string, Palm.PartialCard>
+> = {
+    basic: BasicCards,
+    villager: VillagerCards,
+    achievement: AchievementCards,
+};
+
 /** 按来源取出某张牌某个朝向的内容 */
 export const contentAt = (
     source: PalmCardSource,
     cardNo: number,
     area: PalmArea,
 ): Palm.Content | undefined =>
-    (source === "villager" ? VillagerCards : BasicCards)[String(cardNo)]?.[area];
+    CARDS_BY_SOURCE[source]?.[String(cardNo)]?.[area];
 
 export const contentOf = (
     cardNo: number,
@@ -62,12 +85,14 @@ export const contentOf = (
     source: PalmCardSource = "basic",
 ) => contentAt(source, cardNo, area);
 
-/** 牌面显示名：村民牌有名字，基础牌只用编号 */
+/** 牌面显示名：村民 / 功绩牌写在数据里，基础牌查名字表 */
 export const nameOf = (card: {
     cardNo: number;
     source: PalmCardSource;
     area?: PalmArea;
-}) => contentAt(card.source, card.cardNo, card.area ?? 1)?.name;
+}) =>
+    contentAt(card.source, card.cardNo, card.area ?? 1)?.name ??
+    (card.source === "basic" ? BasicCardNames[card.cardNo] : undefined);
 
 export const labelOf = (card: {
     cardNo: number;
@@ -169,17 +194,24 @@ export function relationLabel(from: PalmArea, to: PalmArea): string {
     return from % 2 === to % 2 ? "翻面" : "翻面 + 旋转";
 }
 
-/** 该来源的牌存在哪些朝向 */
-export function areasOf(source: PalmCardSource): PalmArea[] {
-    return source === "villager" ? [1, 2] : [1, 2, 3, 4];
+/** 这张牌存在哪些朝向 */
+export function areasOf(card: {
+    source: PalmCardSource;
+    cardNo: number;
+}): PalmArea[] {
+    if (card.source === "villager") return [1, 2];
+    // 功绩卡跳过 a 面的解锁条件，只用 b 面
+    if (card.source === "achievement") return achievementAreas(card.cardNo);
+    return [1, 2, 3, 4];
 }
 
 /** 这张牌除当前朝向外的其它朝向 */
 export function otherAreasOf(card: {
     source: PalmCardSource;
+    cardNo: number;
     area: PalmArea;
 }): PalmArea[] {
-    return areasOf(card.source).filter((item) => item !== card.area);
+    return areasOf(card).filter((item) => item !== card.area);
 }
 
 /** 多组资源相加 */
@@ -218,6 +250,16 @@ function coversWithWild(
     return deficit <= wild;
 }
 
+/** Fisher–Yates 洗牌，返回新数组 */
+function shuffled<T>(list: readonly T[]): T[] {
+    const next = [...list];
+    for (let i = next.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [next[i], next[j]] = [next[j]!, next[i]!];
+    }
+    return next;
+}
+
 function cloneState(state: PalmState): PalmState {
     return {
         roundsCompleted: state.roundsCompleted,
@@ -226,11 +268,20 @@ function cloneState(state: PalmState): PalmState {
         bonusStars: state.bonusStars ?? 0,
         lastEvent: state.lastEvent,
         bonus: { ...state.bonus },
-        deck: state.deck.map((card) => ({
-            ...card,
-            resource: card.resource ? { ...card.resource } : undefined,
+        deck: state.deck.map(copySnapshot),
+        retired: (state.retired ?? []).map(copySnapshot),
+        startTasks: (state.startTasks ?? []).map((task) => ({
+            ...task,
+            cardNos: [...task.cardNos],
         })),
+    };
+}
 
+/** 深拷贝一张牌的快照（资源对象要拆开） */
+function copySnapshot(card: PalmCardSnapshot): PalmCardSnapshot {
+    return {
+        ...card,
+        resource: card.resource ? { ...card.resource } : undefined,
     };
 }
 
@@ -248,7 +299,15 @@ export const usePalm = defineStore("palm", () => {
     const bonus = ref<PalmCondition>({});
     /** 全部历史步骤，末位即当前状态；用于撤回与回放 */
     const steps = ref<PalmStep[]>([]);
-    const settings = ref<PalmSettings>({ starter: false, villagers: false });
+    /** 开局效果待处理的队列（兽牙 / 幻象石头 / 伟大的斧） */
+    const startTasks = ref<PalmStartTask[]>([]);
+    /** 效果已结算、移出取牌循环的牌（仍留在牌库列表里） */
+    const retiredCards = ref<PalmCardInstance[]>([]);
+    const settings = ref<PalmSettings>({
+        starter: false,
+        villagers: false,
+        achievements: [],
+    });
     /** 每次状态变化自增，供自动存档监听 */
     const revision = ref(0);
     let uidSeed = 0;
@@ -281,8 +340,11 @@ export const usePalm = defineStore("palm", () => {
     const score = computed(
         () =>
             deck.value.reduce((sum, card) => sum + repuOf(card), 0) +
+            retiredCards.value.reduce((sum, card) => sum + repuOf(card), 0) +
             bonusStars.value,
     );
+    /** 当前待处理的开局效果；为空表示开局已经处理完 */
+    const startTask = computed(() => startTasks.value[0] ?? null);
     const hasBonus = computed(() => Object.keys(bonus.value).length > 0);
     const canUndo = computed(() => !gameOver.value && steps.value.length > 1);
 
@@ -291,10 +353,29 @@ export const usePalm = defineStore("palm", () => {
         deck.value.flatMap((card) => {
             // 横置成资源牌时只露出资源条，能力不生效
             if (card.stored) return [];
+            // 村民技能是主动技：每一轮发动一次，持续到本轮结束
+            if (card.source === "villager" && !card.activated) return [];
             const ability = abilityOf(card);
             return ability ? [{ card, ability }] : [];
         }),
     );
+
+    /** 这张村民牌现在能否发动技能 */
+    function canActivate(uid: string): boolean {
+        const card = deck.value.find((item) => item.uid === uid);
+        return Boolean(card && activateReason(card) === null);
+    }
+
+    /** 不能发动时的原因；null 表示可以发动 */
+    function activateReason(card: PalmCardInstance): string | null {
+        if (gameOver.value) return "本局已结束";
+        if (card.source !== "villager") return "不是村民牌";
+        if (card.area !== 2) return "先付资源招募它";
+        if (card.stored) return "正在充当资源";
+        if (card.activated) return "本轮已发动";
+        if (!abilityOf(card)) return "这张村民没有技能";
+        return null;
+    }
 
     /** 已储存资源上限，村民能力可以把它抬高 */
     const storeLimit = computed(() => {
@@ -338,13 +419,49 @@ export const usePalm = defineStore("palm", () => {
         });
     }
 
-    /** 某个行动的实际花费（已计入村民能力的减免）；null 表示不可用 */
-    function costOf(
+    /** 「2 张房屋升级到 3⬆ 或更高」这类非资源门槛是否满足 */
+    function requireMet(require?: { housesUpgraded?: number }): boolean {
+        const need = require?.housesUpgraded;
+        if (!need) return true;
+        const done = deck.value.filter(
+            (card) =>
+                card.source === "basic" &&
+                BasicCardNames[card.cardNo] === "房屋" &&
+                card.area >= 3,
+        ).length;
+        return done >= need;
+    }
+
+    /** 这个行动被门槛挡住的原因；null 表示没被挡 */
+    function blockedReason(
         card: { cardNo: number; area: PalmArea; source: PalmCardSource },
+        kind: PalmActionKind,
+    ): string | null {
+        const content = contentOf(card.cardNo, card.area, card.source);
+        if (actionCostOf(card.cardNo, card.area, kind, card.source) === null) {
+            return null;
+        }
+        if (!content?.require || requireMet(content.require)) return null;
+        return content.note ?? "条件未满足";
+    }
+
+    /** 某个行动的实际花费（已计入减免与门槛）；null 表示不可用 */
+    function costOf(
+        card: {
+            cardNo: number;
+            area: PalmArea;
+            source: PalmCardSource;
+            used?: boolean;
+        },
         kind: PalmActionKind,
     ): PalmCost | null {
         const base = actionCostOf(card.cardNo, card.area, kind, card.source);
-        return base === null ? null : discounted(base);
+        if (base === null) return null;
+        // 每场一次的效果用掉之后不能再生产
+        if (kind === "produce" && card.used) return null;
+        // 额外的牌面门槛（例如「2 张房屋升级到 3⬆ 或更高」）
+        if (blockedReason(card, kind) !== null) return null;
+        return discounted(base);
     }
 
     function makeCard(
@@ -356,7 +473,7 @@ export const usePalm = defineStore("palm", () => {
             uid: `${source === "villager" ? "v" : "c"}${cardNo}-${uidSeed}`,
             cardNo,
             source,
-            area: 1,
+            area: areasOf({ source, cardNo })[0] ?? 1,
             stored: false,
         };
     }
@@ -370,33 +487,50 @@ export const usePalm = defineStore("palm", () => {
             bonusStars: bonusStars.value,
             lastEvent: lastEvent.value,
             bonus: { ...bonus.value },
-            deck: deck.value.map((card) => ({
-                cardNo: card.cardNo,
-                source: card.source,
-                area: card.area,
-                stored: card.stored,
-                resource: card.resource ? { ...card.resource } : undefined,
-                wild: card.wild,
-            })),
+            deck: deck.value.map(snapshot),
+            retired: retiredCards.value.map(snapshot),
+            startTasks: startTasks.value.map((task) => ({ ...task })),
+        };
+    }
+
+    /** 单张牌导出为纯数据 */
+    function snapshot(card: PalmCardInstance): PalmCardSnapshot {
+        return {
+            cardNo: card.cardNo,
+            source: card.source,
+            area: card.area,
+            stored: card.stored,
+            resource: card.resource ? { ...card.resource } : undefined,
+            wild: card.wild,
+            used: card.used,
+            activated: card.activated,
+        };
+    }
+
+    function restore(card: PalmCardSnapshot): PalmCardInstance {
+        const source = card.source ?? "basic";
+        uidSeed += 1;
+        return {
+            uid: `${source === "villager" ? "v" : "c"}${card.cardNo}-${uidSeed}`,
+            cardNo: card.cardNo,
+            source,
+            area: card.area,
+            stored: card.stored,
+            resource: card.resource ? { ...card.resource } : undefined,
+            wild: card.wild,
+            used: card.used,
+            activated: card.activated,
         };
     }
 
     /** 用一份纯数据覆盖当前局面 */
     function applyState(state: PalmState) {
         uidSeed = 0;
-        deck.value = state.deck.map((card) => {
-            const source = card.source ?? "basic";
-            uidSeed += 1;
-            return {
-                uid: `${source === "villager" ? "v" : "c"}${card.cardNo}-${uidSeed}`,
-                cardNo: card.cardNo,
-                source,
-                area: card.area,
-                stored: card.stored,
-                resource: card.resource ? { ...card.resource } : undefined,
-                wild: card.wild,
-            };
-        });
+        deck.value = state.deck.map(restore);
+        retiredCards.value = (state.retired ?? []).map(restore);
+        startTasks.value = (state.startTasks ?? []).map((task) => ({
+            ...task,
+        }));
         roundsCompleted.value = state.roundsCompleted;
         turn.value = state.turn;
         upgrades.value = state.upgrades ?? 0;
@@ -411,7 +545,7 @@ export const usePalm = defineStore("palm", () => {
         steps.value.push({ label, state: captureState() });
     }
 
-    /** 开新局：洗混 16 张建筑牌（可选村民牌），回合标记卡放在最底 */
+    /** 开新局：洗混基础牌（可选村民 / 功绩牌），回合标记卡放在最底 */
     function start(next?: Partial<PalmSettings>) {
         if (next) settings.value = { ...settings.value, ...next };
         uidSeed = 0;
@@ -419,16 +553,21 @@ export const usePalm = defineStore("palm", () => {
             makeCard(cardNo),
         );
         if (settings.value.villagers) {
+            // 每局只随机抽 3 张村民加入牌库
             order.push(
-                ...villagerNos.map((cardNo) => makeCard(cardNo, "villager")),
+                ...shuffled(villagerNos)
+                    .slice(0, VILLAGER_DRAW)
+                    .map((cardNo) => makeCard(cardNo, "villager")),
             );
         }
-        for (let i = order.length - 1; i > 0; i -= 1) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [order[i], order[j]] = [order[j]!, order[i]!];
-        }
+        const pick = new Set(settings.value.achievements ?? []);
+        order.push(
+            ...achievementNos
+                .filter((cardNo) => pick.has(cardNo))
+                .map((cardNo) => makeCard(cardNo, "achievement")),
+        );
         deck.value = [
-            ...order,
+            ...shuffled(order),
             {
                 uid: "tracker",
                 cardNo: TRACKER_NO,
@@ -437,6 +576,8 @@ export const usePalm = defineStore("palm", () => {
                 stored: false,
             },
         ];
+        retiredCards.value = [];
+        startTasks.value = buildStartTasks();
         roundsCompleted.value = 0;
         turn.value = 0;
         upgrades.value = 0;
@@ -452,6 +593,109 @@ export const usePalm = defineStore("palm", () => {
     function moveToBack(index: number) {
         const [card] = deck.value.splice(index, 1);
         if (card) deck.value.push(card);
+    }
+
+    /** 名字对应的基础牌编号，例如「船屋」→ 1 / 2 / 3 */
+    function cardNosNamed(name: string): number[] {
+        return cardNos.filter((no) => BasicCardNames[no] === name);
+    }
+
+    /** 勾选的功绩卡里，需要在开局时结算效果的那些 */
+    function buildStartTasks(): PalmStartTask[] {
+        const pick = new Set(settings.value.achievements ?? []);
+        const tasks: PalmStartTask[] = [];
+        if (pick.has(1)) {
+            tasks.push({
+                kind: "upgrade",
+                featNo: 1,
+                title: "兽牙",
+                note: "游戏开始时，一个船屋升级 1⬆",
+                cardNos: cardNosNamed("船屋"),
+            });
+        }
+        if (pick.has(7)) {
+            tasks.push({
+                kind: "move",
+                featNo: 7,
+                title: "幻象石头",
+                note: "游戏开始时，将任意一张牌移到牌组的前面",
+                cardNos: [],
+            });
+        }
+        if (pick.has(9)) {
+            tasks.push({
+                kind: "upgrade",
+                featNo: 9,
+                title: "伟大的斧",
+                note: "游戏开始时，一个樵夫升级 1⬆",
+                cardNos: cardNosNamed("樵夫"),
+            });
+        }
+        return tasks;
+    }
+
+    /** 把一张牌移出取牌循环：仍然留在牌库列表里，但不再出现在牌库顶 */
+    function retire(card: PalmCardInstance) {
+        const index = deck.value.indexOf(card);
+        if (index < 0) return;
+        deck.value.splice(index, 1);
+        card.stored = false;
+        card.resource = undefined;
+        card.wild = undefined;
+        retiredCards.value.push(card);
+    }
+
+    /** 一项开局效果结算完毕：移出触发它的功绩卡，并记录一步 */
+    function finishStartTask(task: PalmStartTask, label: string) {
+        startTasks.value = startTasks.value.filter((item) => item !== task);
+        const feat = deck.value.find(
+            (card) =>
+                card.source === "achievement" && card.cardNo === task.featNo,
+        );
+        if (feat) {
+            const name = labelOf(feat);
+            retire(feat);
+            lastEvent.value = `${label}（${name} 已结算，移出取牌循环。）`;
+        } else {
+            lastEvent.value = label;
+        }
+        pushStep(label);
+        revision.value += 1;
+    }
+
+    /** 结算「升级 1⬆」类开局效果：选择旋转或翻面 */
+    function resolveStartUpgrade(uid: string, kind: PalmActionKind): boolean {
+        const task = startTask.value;
+        if (!task || task.kind !== "upgrade") return false;
+        if (kind !== "rotate" && kind !== "flip") return false;
+        const card = deck.value.find((item) => item.uid === uid);
+        if (!card) return false;
+        if (card.source !== "basic" || !task.cardNos.includes(card.cardNo)) {
+            return false;
+        }
+        card.area =
+            kind === "rotate" ? rotatedArea(card.area) : flippedArea(card.area);
+        finishStartTask(
+            task,
+            `${task.title}：${labelOf(card)}${kind === "rotate" ? "旋转 180°" : "翻面"}，升级 1⬆。`,
+        );
+        return true;
+    }
+
+    /** 结算「移到牌组前面」类开局效果 */
+    function resolveStartMove(uid: string): boolean {
+        const task = startTask.value;
+        if (!task || task.kind !== "move") return false;
+        const index = deck.value.findIndex((item) => item.uid === uid);
+        if (index < 0) return false;
+        const [card] = deck.value.splice(index, 1);
+        if (!card) return false;
+        deck.value.unshift(card);
+        finishStartTask(
+            task,
+            `${task.title}：${labelOf(card)}被移到牌库的最前面。`,
+        );
+        return true;
     }
 
     /** 开局补给只在本轮有效，轮次推进后立即失效 */
@@ -473,6 +717,10 @@ export const usePalm = defineStore("palm", () => {
                 top.area = nextTrackerArea(top.area);
                 moveToBack(0);
                 roundsCompleted.value += 1;
+                // 新一轮：村民技能重新可以发动一次
+                [...deck.value, ...retiredCards.value].forEach((card) => {
+                    card.activated = false;
+                });
                 if (roundsCompleted.value >= ROUNDS) {
                     gameOver.value = true;
                     lastEvent.value = `第 ${ROUNDS} 轮结束，本局结束。`;
@@ -483,9 +731,14 @@ export const usePalm = defineStore("palm", () => {
                 expireBonus();
                 continue;
             }
+            if (top.used && !top.stored) {
+                retire(top);
+                continue;
+            }
             if (top.stored) {
                 top.stored = false;
                 moveToBack(0);
+                if (top.used) retire(top);
                 lastEvent.value =
                     "已储存的资源牌被顶到牌库顶，按规则自动回收，资源浪费。";
                 continue;
@@ -524,6 +777,8 @@ export const usePalm = defineStore("palm", () => {
 
         picked.forEach((card) => {
             card.stored = false;
+            // 效果已用尽的牌交出资源后退出取牌循环
+            if (card.used) retire(card);
         });
         return true;
     }
@@ -584,6 +839,10 @@ export const usePalm = defineStore("palm", () => {
             card.stored = true;
             card.resource = { ...gainAt(card.cardNo, card.area, card.source) };
             card.wild = wildAt(card);
+            // 「每场一次」的牌生产过就标记为已消耗
+            if (contentOf(card.cardNo, card.area, card.source)?.produce?.once) {
+                card.used = true;
+            }
             const gainText = [
                 ...Object.entries(card.resource).map(
                     ([item, amount]) => `${amount}${item}`,
@@ -610,7 +869,9 @@ export const usePalm = defineStore("palm", () => {
                 : `${kind === "rotate" ? "旋转" : "翻面"} ${label}`;
 
         turn.value += 1;
-        moveToBack(index);
+        // 支付时可能有牌退出取牌循环，按下标会错位，改按实例定位
+        const position = deck.value.indexOf(card);
+        if (position >= 0) moveToBack(position);
         settle();
         pushStep(stepLabel);
         revision.value += 1;
@@ -638,8 +899,21 @@ export const usePalm = defineStore("palm", () => {
         if (!card || !card.stored) return false;
         const label = labelOf(card);
         card.stored = false;
+        if (card.used) retire(card);
         lastEvent.value = `丢弃了${label}。`;
         pushStep(`丢弃资源 ${label}`);
+        revision.value += 1;
+        return true;
+    }
+
+    /** 发动村民技能：免费，每轮一次，持续到本轮结束 */
+    function activateVillager(uid: string): boolean {
+        const card = deck.value.find((item) => item.uid === uid);
+        if (!card || activateReason(card) !== null) return false;
+        card.activated = true;
+        const label = labelOf(card);
+        lastEvent.value = `${label} 发动技能（持续到本轮结束）。`;
+        pushStep(`发动 ${label}`);
         revision.value += 1;
         return true;
     }
@@ -664,7 +938,7 @@ export const usePalm = defineStore("palm", () => {
         const last = history[history.length - 1];
         if (last) last.state = captureState();
         return {
-            version: 3,
+            version: 4,
             savedAt: Date.now(),
             steps: history,
         };
@@ -678,14 +952,17 @@ export const usePalm = defineStore("palm", () => {
         return steps.value.map((step) => {
             const { state } = step;
             const names = (card: PalmState["deck"][number]) =>
-                contentAt(card.source ?? "basic", card.cardNo, card.area)?.name ??
-                `${card.cardNo} 号`;
+                labelOf({
+                    cardNo: card.cardNo,
+                    source: card.source ?? "basic",
+                    area: card.area,
+                });
             return {
                 label: step.label,
                 round: Math.min(ROUNDS, state.roundsCompleted + 1),
                 turn: state.turn,
                 score:
-                    state.deck.reduce(
+                    [...state.deck, ...(state.retired ?? [])].reduce(
                         (sum, card) =>
                             sum + repuAt(card.cardNo, card.area, card.source),
                         0,
@@ -712,6 +989,8 @@ export const usePalm = defineStore("palm", () => {
         if (!file || !Array.isArray(file.steps) || !file.steps.length) {
             return false;
         }
+        // 非法局面（例如功绩卡停在解锁条件面）直接拒绝
+        if (!file.steps.every((step) => isState(step.state))) return false;
         steps.value = file.steps.map((step) => ({
             label: step.label,
             state: cloneState(step.state),
@@ -724,6 +1003,15 @@ export const usePalm = defineStore("palm", () => {
 
     return {
         deck,
+        retiredCards,
+        startTasks,
+        startTask,
+        resolveStartUpgrade,
+        resolveStartMove,
+        activateVillager,
+        canActivate,
+        activateReason,
+        blockedReason,
         topCards,
         peekCards,
         trackerCard,

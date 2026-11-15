@@ -5,8 +5,10 @@ withDefaults(
 		subtitle?: string;
 		/** 面板最大宽度 */
 		maxWidth?: string;
+		/** 是否显示关闭按钮；false 时只能由外部关闭 */
+		closable?: boolean;
 	}>(),
-	{ maxWidth: "1280px" },
+	{ maxWidth: "1280px", closable: true },
 );
 
 const show = defineModel<boolean>("show", { default: false });
@@ -20,7 +22,7 @@ const show = defineModel<boolean>("show", { default: false });
 				class="fixed inset-0 z-[60] grid place-items-center overflow-y-auto bg-black/75 px-3 py-6 backdrop-blur-sm"
 				role="dialog"
 				aria-modal="true"
-				@click.self="show = false">
+				@click.self="closable && (show = false)">
 				<div
 					class="w-[min(96vw,var(--palm-modal-max))] rounded-3xl border border-white/10 bg-[#0b1220] p-5 shadow-[0_40px_100px_-40px_rgba(0,0,0,0.95)]"
 					:style="{ '--palm-modal-max': maxWidth }">
@@ -36,6 +38,7 @@ const show = defineModel<boolean>("show", { default: false });
 							</p>
 						</div>
 						<button
+							v-if="closable"
 							type="button"
 							class="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11.5px] text-white/60 transition-colors hover:border-white/25 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
 							@click="show = false">

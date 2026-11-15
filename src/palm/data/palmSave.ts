@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import type { PalmArea, PalmCardSource, PalmCondition } from "../game/palmStore";
+import { achievementAreas } from "./achievement";
 
 /** 单张牌在某一刻的状态 */
 export interface PalmCardSnapshot {
@@ -12,6 +13,21 @@ export interface PalmCardSnapshot {
 	resource?: PalmCondition;
 	/** 生产出的万能资源数量 */
 	wild?: number;
+	/** 「每场一次」的效果已经用掉 */
+	used?: boolean;
+	/** 村民技能本轮已经发动过 */
+	activated?: boolean;
+}
+
+/** 开局需要玩家处理的一项功绩效果 */
+export interface PalmStartTask {
+	kind: "upgrade" | "move";
+	/** 触发它的功绩卡编号 */
+	featNo: number;
+	title: string;
+	note: string;
+	/** upgrade 任务只能在这些基础牌里选 */
+	cardNos: number[];
 }
 
 /** 一局的完整状态；历史里每一步都存一份 */
@@ -25,6 +41,10 @@ export interface PalmState {
 	/** 开局补给（有效期一回合），为空表示没有 */
 	bonus: PalmCondition;
 	deck: PalmCardSnapshot[];
+	/** 效果已结算、退出取牌循环的牌（仍计入牌库与得分） */
+	retired?: PalmCardSnapshot[];
+	/** 尚未处理的开局效果 */
+	startTasks?: PalmStartTask[];
 }
 
 /** 回放 / 撤回用的一步 */
@@ -38,6 +58,8 @@ export interface PalmSettings {
 	starter: boolean;
 	/** 把 7 张村民牌洗入牌库 */
 	villagers: boolean;
+	/** 要加入牌库的功绩卡编号（1–9），手动逐张勾选 */
+	achievements: number[];
 }
 
 export interface PalmSaveFile {
@@ -49,11 +71,12 @@ export interface PalmSaveFile {
 const SAVE_KEY = "palm-island:save";
 const SETTINGS_KEY = "palm-island:settings";
 /** 存档格式版本；数据结构变动时递增，旧存档会被丢弃 */
-const SAVE_VERSION = 3;
+const SAVE_VERSION = 4;
 
 export const DEFAULT_SETTINGS: PalmSettings = {
 	starter: false,
 	villagers: false,
+	achievements: [],
 };
 
 function isCondition(value: unknown): value is PalmCondition {
@@ -66,12 +89,65 @@ function isCondition(value: unknown): value is PalmCondition {
 	);
 }
 
-function isState(value: unknown): value is PalmState {
+/** 单张快照的合法性（牌号、朝向、资源字段） */
+function isLegalCard(card: PalmCardSnapshot): boolean {
+	if (!card || !Number.isInteger(card.cardNo)) return false;
+	if (card.resource !== undefined && !isCondition(card.resource)) return false;
+	if (
+		card.wild !== undefined &&
+		(!Number.isInteger(card.wild) || card.wild < 0)
+	) {
+		return false;
+	}
+	if (card.used !== undefined && typeof card.used !== "boolean") return false;
+	if (card.activated !== undefined && typeof card.activated !== "boolean") {
+		return false;
+	}
+	if (card.area !== 1 && card.area !== 2 && card.area !== 3 && card.area !== 4) {
+		return false;
+	}
+	// 村民卡只有招募面与村民面两个朝向
+	if (card.source === "villager") {
+		return (
+			card.cardNo >= 1 &&
+			card.cardNo <= 7 &&
+			(card.area === 1 || card.area === 2)
+		);
+	}
+	// 功绩卡跳过 a 面的解锁条件：单朝向卡只用 b 面，其余用 b 面上下两面
+	if (card.source === "achievement") {
+		if (card.cardNo < 1 || card.cardNo > 9) return false;
+		return achievementAreas(card.cardNo).includes(card.area);
+	}
+	return card.source === "basic" && card.cardNo >= 1 && card.cardNo <= 17;
+}
+
+function isStartTask(value: unknown): value is PalmStartTask {
+	if (!value || typeof value !== "object") return false;
+	const task = value as Partial<PalmStartTask>;
+	if (task.kind !== "upgrade" && task.kind !== "move") return false;
+	if (!Number.isInteger(task.featNo)) return false;
+	if (typeof task.title !== "string" || typeof task.note !== "string") {
+		return false;
+	}
+	if (!Array.isArray(task.cardNos)) return false;
+	return task.cardNos.every((no) => Number.isInteger(no));
+}
+
+export function isState(value: unknown): value is PalmState {
 	if (!value || typeof value !== "object") return false;
 	const state = value as Partial<PalmState>;
 	if (!Array.isArray(state.deck)) return false;
-	// 17 张（16 建筑 + 标记卡），启用村民扩展时为 24 张
-	if (state.deck.length !== 17 && state.deck.length !== 24) return false;
+	const retired = state.retired ?? [];
+	if (!Array.isArray(retired)) return false;
+	// 17 张（16 建筑 + 标记卡），追加村民 7 张、功绩 9 张，最多 33 张；
+	// 已结算的牌移出取牌循环，但仍算在总数里
+	const total = state.deck.length + retired.length;
+	if (total < 17 || total > 33) return false;
+	if (state.startTasks !== undefined) {
+		if (!Array.isArray(state.startTasks)) return false;
+		if (!state.startTasks.every(isStartTask)) return false;
+	}
 	if (!Number.isInteger(state.turn) || (state.turn ?? -1) < 0) return false;
 	if (
 		!Number.isInteger(state.roundsCompleted) ||
@@ -88,43 +164,26 @@ function isState(value: unknown): value is PalmState {
 		return false;
 	}
 
-	const legal = state.deck.every((card) => {
-		if (!card || !Number.isInteger(card.cardNo)) return false;
-		if (card.resource !== undefined && !isCondition(card.resource)) {
-			return false;
-		}
-		if (
-			card.wild !== undefined &&
-			(!Number.isInteger(card.wild) || card.wild < 0)
-		) {
-			return false;
-		}
-		if (card.area !== 1 && card.area !== 2 && card.area !== 3 && card.area !== 4) {
-			return false;
-		}
-		// 村民卡只有招募面与村民面两个朝向
-		if (card.source === "villager") {
-			return (
-				card.cardNo >= 1 &&
-				card.cardNo <= 7 &&
-				(card.area === 1 || card.area === 2)
-			);
-		}
-		return (
-			card.source === "basic" && card.cardNo >= 1 && card.cardNo <= 17
-		);
-	});
-	if (!legal) return false;
+	if (!state.deck.every(isLegalCard)) return false;
+	if (!retired.every(isLegalCard)) return false;
 
+	const all = [...state.deck, ...retired];
 	// 1 张回合标记卡；16 张建筑牌、7 张村民牌各自互不重复
-	if (state.deck.filter((card) => card.cardNo === 17).length !== 1) {
-		return false;
-	}
-	const buildings = state.deck.filter(
+	if (all.filter((card) => card.cardNo === 17).length !== 1) return false;
+	const buildings = all.filter(
 		(card) => card.source === "basic" && card.cardNo !== 17,
 	);
 	if (new Set(buildings.map((card) => card.cardNo)).size !== 16) return false;
-	const villagers = state.deck.filter((card) => card.source === "villager");
+	const achievements = all.filter(
+		(card) => card.source === "achievement",
+	);
+	if (
+		new Set(achievements.map((card) => card.cardNo)).size !==
+		achievements.length
+	) {
+		return false;
+	}
+	const villagers = all.filter((card) => card.source === "villager");
 	const villagerCount = new Set(villagers.map((card) => card.cardNo)).size;
 	return villagerCount === villagers.length;
 }
@@ -202,6 +261,11 @@ export const usePalmSave = defineStore("palmSave", () => {
 				...DEFAULT_SETTINGS,
 				starter: parsed?.starter === true,
 				villagers: parsed?.villagers === true,
+				achievements: Array.isArray(parsed?.achievements)
+					? parsed.achievements.filter(
+							(n) => Number.isInteger(n) && n >= 1 && n <= 9,
+						)
+					: [],
 			};
 		} catch {
 			settings.value = { ...DEFAULT_SETTINGS };
