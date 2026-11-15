@@ -127,6 +127,17 @@ export const AchievementCards: Record<string, Palm.PartialCard> = {
     },
 };
 
+/** 功绩卡的名字；不看朝向（四朝向卡的解锁条件面不带名字） */
+export function achievementName(cardNo: number): string | undefined {
+    const card = AchievementCards[String(cardNo)];
+    if (!card) return undefined;
+    for (const area of [2, 3, 4, 1] as PalmArea[]) {
+        const name = card[area]?.name;
+        if (name) return name;
+    }
+    return undefined;
+}
+
 /** 功绩卡编号 */
 export const achievementNos = Object.keys(AchievementCards)
     .map(Number)

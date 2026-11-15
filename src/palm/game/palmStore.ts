@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import {
     AchievementCards,
     achievementAreas,
+    achievementName,
     achievementNos,
 } from "../data/achievement";
 import { BasicCardNames, BasicCards } from "../data/data";
@@ -92,7 +93,11 @@ export const nameOf = (card: {
     area?: PalmArea;
 }) =>
     contentAt(card.source, card.cardNo, card.area ?? 1)?.name ??
-    (card.source === "basic" ? BasicCardNames[card.cardNo] : undefined);
+    (card.source === "basic"
+        ? BasicCardNames[card.cardNo]
+        : card.source === "achievement"
+            ? achievementName(card.cardNo)
+            : undefined);
 
 export const labelOf = (card: {
     cardNo: number;
@@ -843,15 +848,7 @@ export const usePalm = defineStore("palm", () => {
             if (contentOf(card.cardNo, card.area, card.source)?.produce?.once) {
                 card.used = true;
             }
-            const gainText = [
-                ...Object.entries(card.resource).map(
-                    ([item, amount]) => `${amount}${item}`,
-                ),
-                card.wild ? `${card.wild}万能` : "",
-            ]
-                .filter(Boolean)
-                .join(" ");
-            lastEvent.value = `${label}被生产为资源（${gainText}）。`;
+            lastEvent.value = `${label}进行生产获得资源。`;
         } else {
             // 村民能力在升级前结算：这张牌自己转成村民面时，本次不计入
             const stars = upgradeStars.value;

@@ -80,7 +80,8 @@ const deckShow = ref(false);
 /** 全牌库一览里每张牌的宽度 */
 const deckCardWidth = ref(120);
 /** 开局效果候选牌的宽度 */
-const startCardWidth = ref(160);/** 正在预览其余朝向的牌（按牌库顶下标 0 / 1） */
+const startCardWidth =
+	ref(160); /** 正在预览其余朝向的牌（按牌库顶下标 0 / 1） */
 const previewIndex = ref<number | null>(null);
 /** 旋转 / 翻面的确认框 */
 const transform = ref<{
@@ -140,11 +141,7 @@ const ABILITY_READY: Record<PalmAbility["id"], boolean> = {
 };
 
 /** 牌面能力摘要；null 表示这个朝向没有能力 */
-function abilityInfo(
-	cardNo: number,
-	area: PalmArea,
-	source: PalmCardSource,
-) {
+function abilityInfo(cardNo: number, area: PalmArea, source: PalmCardSource) {
 	const content = contentAt(source, cardNo, area);
 	if (!content?.ability && !content?.note) return null;
 	return {
@@ -432,7 +429,9 @@ function actionsOf(card: PalmCardInstance | undefined): ActionView[] {
 			wild: card.stored ? wildOf(card) : wildAt(card),
 			showDiscount:
 				palm.discount > 0 &&
-				Boolean(raw && raw.some((option) => Object.keys(option).length)),
+				Boolean(
+					raw && raw.some((option) => Object.keys(option).length),
+				),
 		});
 	}
 	return list;
@@ -625,7 +624,10 @@ function measure() {
 	// 开局效果：候选牌要看清朝向，一屏 5 列
 	startCardWidth.value = Math.max(
 		150,
-		Math.min(220, Math.floor((Math.min(1100, window.innerWidth - 48) - 60) / 5)),
+		Math.min(
+			220,
+			Math.floor((Math.min(1100, window.innerWidth - 48) - 60) / 5),
+		),
 	);
 }
 
@@ -746,9 +748,7 @@ function saveAndExit() {
 					type="button"
 					class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11.5px] text-white/60 transition-colors enabled:hover:border-white/25 enabled:hover:text-white focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-35"
 					:disabled="!palm.canUndo"
-					:title="
-						palm.canUndo ? '回到上一步' : '没有可以撤回的步骤'
-					"
+					:title="palm.canUndo ? '回到上一步' : '没有可以撤回的步骤'"
 					@click="undoStep">
 					撤回
 				</button>
@@ -967,7 +967,8 @@ function saveAndExit() {
 									? 'border-emerald-400/40 bg-emerald-400/[0.08]'
 									: 'border-white/10 bg-white/[0.03]'
 							">
-							<div class="flex items-center justify-between gap-2">
+							<div
+								class="flex items-center justify-between gap-2">
 								<span class="text-[11.5px] text-white/70">
 									{{ labelOf(card) }}
 								</span>
@@ -1413,7 +1414,8 @@ function saveAndExit() {
 			</div>
 
 			<p class="mt-2 text-[10.5px] leading-4 text-white/25">
-				这里列出的是整副牌当前的状态，不含回合标记卡；牌库的实际先后顺序请用「牌库顶 3 张」查看。
+				这里列出的是整副牌当前的状态，不含回合标记卡；牌库的实际先后顺序请用「牌库顶
+				3 张」查看。
 			</p>
 		</PalmModal>
 
@@ -1607,8 +1609,10 @@ function saveAndExit() {
 					<span class="block text-[12px] font-medium text-white/85">
 						开局携带 1 石 + 1 鱼 + 1 木
 					</span>
-					<span class="mt-1 block text-[10.5px] leading-4 text-white/40">
-						这些资源只在本轮（第 1 轮）有效，进入第 2 轮即作废。它们不占用已储存资源的位置，支付时优先扣除。
+					<span
+						class="mt-1 block text-[10.5px] leading-4 text-white/40">
+						这些资源只在本轮（第 1 轮）有效，进入第 2
+						轮即作废。它们不占用已储存资源的位置，支付时优先扣除。
 					</span>
 					<span class="mt-1.5 flex items-center gap-1.5">
 						<PalmResources :items="STARTER_BONUS" size="xs" />
@@ -1629,21 +1633,24 @@ function saveAndExit() {
 					class="mt-0.5 h-4 w-4 shrink-0 accent-violet-400" />
 				<span class="min-w-0">
 					<span class="block text-[12px] font-medium text-white/85">
-						启用村民卡（bvi-1 ~ 7）
+						启用村民卡
 					</span>
-					<span class="mt-1 block text-[10.5px] leading-4 text-white/40">
-						每局从 7 张村民里随机抽 3 张洗入牌库。用「旋转」付钱招募，村民面提供 ★ 与可发动的技能；村民卡只有招募面与村民面两个朝向。
+					<span
+						class="mt-1 block text-[10.5px] leading-4 text-white/40">
+						每局从 7 张村民里随机抽 3
+						张洗入牌库。用「旋转」付钱招募，村民面提供 ★
+						与可发动的技能；村民卡只有招募面与村民面两个朝向。
 					</span>
 				</span>
 			</label>
 
-			<div class="mt-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+			<div
+				class="mt-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
 				<div class="flex items-center justify-between gap-2">
 					<span class="text-[12px] font-medium text-white/85">
 						功绩卡
 					</span>
-					<span
-						class="text-[10.5px] text-white/35 tabular-nums">
+					<span class="text-[10.5px] text-white/35 tabular-nums">
 						已选 {{ achievementOption.length }} / 9
 					</span>
 				</div>
@@ -1668,7 +1675,12 @@ function saveAndExit() {
 						<span class="min-w-0">
 							<span
 								class="block text-[11px] font-medium text-white/80">
-								{{ labelOf({ cardNo: no, source: 'achievement' }) }}
+								{{
+									labelOf({
+										cardNo: no,
+										source: "achievement",
+									})
+								}}
 							</span>
 							<span
 								class="mt-0.5 block text-[10px] leading-3.5 text-white/35">
