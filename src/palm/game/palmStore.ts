@@ -455,7 +455,8 @@ export const usePalm = defineStore("palm", () => {
             return null;
         }
         if (!content?.require || requireMet(content.require)) return null;
-        return content.note ?? "条件未满足";
+        // 这个提示用于 title 提示，富文本牌面说明退化为通用文案
+        return typeof content.note === "string" ? content.note : "条件未满足";
     }
 
     /** 某个行动的实际花费（已计入减免与门槛）；null 表示不可用 */

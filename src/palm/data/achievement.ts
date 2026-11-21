@@ -150,8 +150,8 @@ export function achievementAreas(cardNo: number): PalmArea[] {
     return ACHIEVEMENT_LAYOUT[cardNo] === "quad" ? [2, 4, 3] : [2];
 }
 
-/** 设置界面用的简短说明；资源部分会渲染成图标 */
-export const ACHIEVEMENT_HINT: Record<number, PalmRich> = {
+/** 设置界面用的简短说明；需要资源图标时写成富文本数组 */
+export const ACHIEVEMENT_HINT: Record<number, string | PalmRich> = {
     1: "游戏开始时，一个船屋升级 1⬆",
     2: ["免费生产，产出", { Log: 1, Fish: 1, Rock: 1 }, "（每场一次）"],
     3: ["免费生产，产出", { Rock: 1 }],
