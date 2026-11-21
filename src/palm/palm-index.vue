@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import PalmCardArea from "./component/palm-card-area.vue";
 import PalmCost from "./component/palm-cost.vue";
 import PalmModal from "./component/palm-modal.vue";
+import PalmPayPicker from "./component/palm-pay-picker.vue";
 import PalmResources from "./component/palm-resources.vue";
 import PalmRichText from "./component/palm-rich-text.vue";
 import type { PalmCondition, PalmItem } from "./component/palm-chips";
@@ -11,6 +12,7 @@ import {
 	ACHIEVEMENT_LAYOUT,
 	achievementNos,
 } from "./data/achievement";
+import { orderSpec, type PalmOrder } from "./data/orders";
 import { gradeOf, usePalmRecord } from "./data/palmRecord";
 import { usePalmSave } from "./data/palmSave";
 import {
@@ -55,6 +57,8 @@ const villagerOption = ref(false);
 const achievementOption = ref<number[]>([]);
 /** 是否允许查看完整的牌库顺序 */
 const peekAllOption = ref(false);
+/** 订单扩展开关 */
+const orderOption = ref(false);
 
 /** 显示类设置：改完立即生效并保存，不用重开 */
 function setPeekAll(value: boolean) {
@@ -66,6 +70,7 @@ function setPeekAll(value: boolean) {
 		villagers: villagerOption.value,
 		achievements: [...achievementOption.value],
 		peekAll: value,
+		orders: orderOption.value,
 	});
 }
 
@@ -477,52 +482,13 @@ function pickAction(index: number, action: ActionView) {
 	openActionSheet(index, action.kind, action.cost);
 }
 
-const pickedSum = computed<PalmCondition>(() => {
-	const total: PalmCondition = {};
-	for (const uid of picked.value) {
-		const card = palm.storedCards.find((item) => item.uid === uid);
-		if (!card) continue;
-		for (const [item, amount] of Object.entries(gainOf(card))) {
-			const key = item as PalmItem;
-			total[key] = (total[key] ?? 0) + (amount ?? 0);
-		}
-	}
-	return total;
-});
-
-/** 已选牌里的万能资源合计 */
-const pickedWild = computed(() =>
-	picked.value.reduce((sum, uid) => {
-		const card = palm.storedCards.find((item) => item.uid === uid);
-		return sum + (card ? wildOf(card) : 0);
-	}, 0),
-);
-
+/** 行动弹窗的支付是否可确认 */
 const paymentReady = computed(() => {
 	const sheet = actionSheet.value;
 	if (!sheet) return false;
 	if (!sheet.cost.length) return true;
 	return palm.canPay(picked.value, sheet.cost);
 });
-
-const wastedHint = computed(() => {
-	const sheet = actionSheet.value;
-	if (!sheet || !picked.value.length) return null;
-	// 万能资源几乎总会有富余，只有纯普通资源时才提示作废
-	if (pickedWild.value) return null;
-	const hasExtra = sheet.cost.every((option) =>
-		Object.entries(pickedSum.value).some(
-			([item, amount]) => (amount ?? 0) > (option[item as PalmItem] ?? 0),
-		),
-	);
-	return hasExtra ? "整张资源牌会被一次性消耗，多出的资源作废。" : null;
-});
-
-function togglePick(uid: string) {
-	picked.value = picked.value.includes(uid)
-		? picked.value.filter((item) => item !== uid)
-		: [...picked.value, uid];
-}
 
 /** 确认执行：一次点击完成「预览确认 + 支付」 */
 function confirmAction() {
@@ -531,6 +497,46 @@ function confirmAction() {
 	palm.perform(sheet.index, sheet.kind, picked.value);
 	actionSheet.value = null;
 	picked.value = [];
+}
+
+/* ---------- 订单提交 ---------- */
+
+/** 正在提交的订单编号 */
+const orderSheet = ref<number | null>(null);
+const orderPicked = ref<string[]>([]);
+
+const orderSheetOrder = computed(() => {
+	const no = orderSheet.value;
+	if (no === null) return null;
+	return palm.orders.find((order) => order.no === no) ?? null;
+});
+
+const orderSheetCost = computed<PalmCondition[]>(() => {
+	const order = orderSheetOrder.value;
+	return order ? palm.orderCost(order) : [];
+});
+
+const orderReady = computed(() => {
+	const order = orderSheetOrder.value;
+	if (!order) return false;
+	return palm.canPay(orderPicked.value, orderSheetCost.value);
+});
+
+function openOrderSheet(order: PalmOrder) {
+	orderSheet.value = order.no;
+	orderPicked.value = palm.findPayment(palm.orderCost(order)) ?? [];
+}
+
+function closeOrderSheet() {
+	orderSheet.value = null;
+	orderPicked.value = [];
+}
+
+function confirmOrder() {
+	const order = orderSheetOrder.value;
+	if (!order || !orderReady.value) return;
+	palm.submitOrder(order.no, orderPicked.value);
+	closeOrderSheet();
 }
 
 function closeSheet() {
@@ -544,8 +550,10 @@ function restart() {
 		villagers: villagerOption.value,
 		achievements: [...achievementOption.value],
 		peekAll: peekAllOption.value,
+		orders: orderOption.value,
 	});
 	closeSheet();
+	closeOrderSheet();
 	peekShow.value = false;
 	previewIndex.value = null;
 	restartConfirm.value = false;
@@ -564,6 +572,7 @@ function openNewGame(force = false) {
 	villagerOption.value = palmSave.settings.villagers;
 	achievementOption.value = [...(palmSave.settings.achievements ?? [])];
 	peekAllOption.value = palmSave.settings.peekAll;
+	orderOption.value = palmSave.settings.orders;
 	settingsShow.value = true;
 }
 
@@ -574,6 +583,7 @@ function startNewGame() {
 		villagers: villagerOption.value,
 		achievements: [...achievementOption.value],
 		peekAll: peekAllOption.value,
+		orders: orderOption.value,
 	});
 	restart();
 }
@@ -587,6 +597,7 @@ function undoStep() {
 	if (!palm.canUndo) return;
 	// 撤回会重建卡牌实例，之前选中的资源 uid 全部失效，相关面板需要关闭
 	closeSheet();
+	closeOrderSheet();
 	previewIndex.value = null;
 	palm.undo();
 }
@@ -639,6 +650,7 @@ onMounted(() => {
 	villagerOption.value = palmSave.settings.villagers;
 	achievementOption.value = [...(palmSave.settings.achievements ?? [])];
 	peekAllOption.value = palmSave.settings.peekAll;
+	orderOption.value = palmSave.settings.orders;
 	// 有存档就接着上局，否则开新局并让玩家选择开局设置
 	const saved = palmSave.load();
 	// 显示类设置不存进对局存档，恢复后要同步到运行中的 store
@@ -649,6 +661,7 @@ onMounted(() => {
 			villagers: villagerOption.value,
 			achievements: [...achievementOption.value],
 			peekAll: peekAllOption.value,
+			orders: orderOption.value,
 		});
 		settingsShow.value = true;
 	}
@@ -1013,7 +1026,7 @@ function saveAndExit() {
 							<p
 								v-else-if="card.activated"
 								class="mt-1 text-[10px] text-emerald-200/70">
-								本轮已发动 · 本轮结束前持续生效
+								本轮已发动，本轮结束前持续生效
 							</p>
 						</li>
 					</ul>
@@ -1094,6 +1107,110 @@ function saveAndExit() {
 				</section>
 
 				<section
+					v-if="palm.orders.length"
+					class="rounded-2xl border border-amber-400/25 bg-amber-400/[0.05] p-3 backdrop-blur">
+					<div class="flex items-center justify-between gap-2">
+						<h2 class="text-[12.5px] font-semibold text-amber-100">
+							订单
+						</h2>
+						<span class="text-[10.5px] text-amber-200/50">
+							已完成 {{ palm.completedOrders }} /
+							{{ palm.orders.length }}，声望
+							{{ palm.orderStars }}
+						</span>
+					</div>
+
+					<ul class="mt-2 flex flex-col gap-1.5">
+						<li
+							v-for="order in palm.orders"
+							:key="order.no"
+							class="rounded-xl border px-2.5 py-1.5"
+							:class="
+								palm.orderStatus(order) === 'done'
+									? 'border-emerald-400/40 bg-emerald-400/[0.08]'
+									: palm.orderStatus(order) === 'open'
+										? 'border-amber-400/45 bg-amber-400/[0.08]'
+										: 'border-white/10 bg-white/[0.03]'
+							">
+							<div
+								class="flex items-center justify-between gap-2">
+								<span
+									class="text-[11.5px] font-medium text-white/75">
+									订单 {{ order.no }}
+								</span>
+								<span class="flex items-center gap-1">
+									<span
+										class="rounded border border-amber-300/35 bg-amber-400/15 px-1 text-[9.5px] font-medium text-amber-100 tabular-nums">
+										★ +{{
+											orderSpec(order.no)?.reward ?? 0
+										}}
+									</span>
+									<span
+										v-if="
+											palm.orderStatus(order) === 'done'
+										"
+										class="rounded border border-emerald-300/40 bg-emerald-400/15 px-1 text-[9.5px] text-emerald-100">
+										已完成
+									</span>
+									<span
+										v-else-if="
+											palm.orderStatus(order) ===
+											'expired'
+										"
+										class="rounded border border-white/15 bg-white/5 px-1 text-[9.5px] text-white/40">
+										已错过
+									</span>
+								</span>
+							</div>
+
+							<p
+								v-if="palm.orderStatus(order) === 'hidden'"
+								class="mt-1 text-[10px] text-white/30">
+								第 {{ orderSpec(order.no)?.reveal }} 轮公布
+							</p>
+							<div
+								v-else
+								class="mt-1 flex flex-wrap items-center gap-1.5">
+								<PalmResources :items="order.need" size="xs" />
+								<span class="text-[9.5px] text-white/25">
+									{{
+										orderSpec(order.no)?.from ===
+										orderSpec(order.no)?.to
+											? `第 ${orderSpec(order.no)?.from} 轮`
+											: `第 ${orderSpec(order.no)?.from}–${orderSpec(order.no)?.to} 轮`
+									}}
+								</span>
+							</div>
+
+							<button
+								v-if="palm.orderStatus(order) === 'open'"
+								type="button"
+								class="mt-1.5 w-full rounded-lg border px-2 py-1 text-[10.5px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-amber-400/40 focus-visible:outline-none"
+								:class="
+									palm.canSubmitOrder(order)
+										? 'border-amber-400/50 bg-amber-400/15 text-amber-100 hover:bg-amber-400/25'
+										: 'cursor-not-allowed border-white/10 bg-white/[0.02] text-white/30'
+								"
+								:disabled="!palm.canSubmitOrder(order)"
+								@click="openOrderSheet(order)">
+								{{
+									palm.canSubmitOrder(order)
+										? "提交订单"
+										: "资源不足"
+								}}
+							</button>
+							<p
+								v-else-if="
+									palm.orderStatus(order) === 'waiting'
+								"
+								class="mt-3 text-[10px] text-white/30">
+								等待开放
+							</p>
+						</li>
+					</ul>
+				</section>
+
+				<section
 					class="rounded-2xl border border-white/10 bg-white/[0.03] p-3 backdrop-blur">
 					<div class="flex items-center justify-between gap-2">
 						<h2 class="text-[12.5px] font-semibold text-white">
@@ -1118,7 +1235,9 @@ function saveAndExit() {
 							type="button"
 							class="rounded-xl border border-white/12 bg-white/[0.04] px-2.5 py-1.5 text-[11px] text-white/55 transition-colors hover:border-sky-400/40 hover:text-sky-200 focus-visible:ring-2 focus-visible:ring-sky-400/40 focus-visible:outline-none"
 							@click="peekShow = true">
-							{{ peekAllEnabled ? "查看完整顺序" : "牌库顶 3 张" }}
+							{{
+								peekAllEnabled ? "查看完整顺序" : "牌库顶 3 张"
+							}}
 						</button>
 						<button
 							type="button"
@@ -1427,7 +1546,11 @@ function saveAndExit() {
 		<!-- 牌库顶 3 张 / 完整顺序 -->
 		<PalmModal
 			v-model:show="peekShow"
-			:title="peekAllEnabled ? `牌库顺序 · 共 ${palm.peekCards.length} 张` : '牌库顶 3 张'"
+			:title="
+				peekAllEnabled
+					? `牌库顺序 · 共 ${palm.peekCards.length} 张`
+					: '牌库顶 3 张'
+			"
 			:subtitle="
 				peekAllEnabled
 					? `本轮剩余 ${palm.remaining} 张。已开启「显示完整牌库顺序」，下面按先后排列。`
@@ -1467,7 +1590,9 @@ function saveAndExit() {
 						:card-no="card.cardNo"
 						:source="card.source"
 						:area="card.area"
-						:width="peekAllEnabled ? deckCardWidth - 24 : showcaseWidth" />
+						:width="
+							peekAllEnabled ? deckCardWidth - 24 : showcaseWidth
+						" />
 
 					<div
 						class="flex flex-wrap items-center justify-center gap-1.5">
@@ -1514,8 +1639,7 @@ function saveAndExit() {
 			max-width="860px"
 			@update:show="closeSheet">
 			<div v-if="actionSheet && actionCard" class="space-y-3">
-				<div
-					class="grid grid-cols-[1fr_auto_1fr] items-start gap-3">
+				<div class="grid grid-cols-[1fr_auto_1fr] items-start gap-3">
 					<figure class="flex flex-col items-center gap-2">
 						<figcaption class="text-[10.5px] text-white/35">
 							当前 ·
@@ -1592,63 +1716,10 @@ function saveAndExit() {
 					</figure>
 				</div>
 
-				<div
-					class="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
-					<div class="flex flex-wrap items-center justify-between gap-2">
-						<div class="flex items-center gap-1.5">
-							<span class="text-[11px] text-white/35">费用</span>
-							<PalmCost :cost="actionSheet.cost" size="xs" />
-						</div>
-						<div class="flex items-center gap-1.5">
-							<span class="text-[11px] text-white/35">已选合计</span>
-							<PalmResources
-								:items="pickedSum"
-								:wild="pickedWild"
-								size="xs" />
-							<template v-if="palm.hasBonus">
-								<span class="text-[10px] text-white/25">+</span>
-								<PalmResources :items="palm.bonus" size="xs" />
-								<span class="text-[10px] text-sky-200/50">
-									开局补给优先扣除
-								</span>
-							</template>
-						</div>
-					</div>
-
-					<div
-						v-if="actionSheet.cost.length"
-						class="mt-2.5 flex flex-wrap gap-1.5">
-						<button
-							v-for="card in palm.storedCards"
-							:key="card.uid"
-							type="button"
-							class="flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
-							:class="
-								picked.includes(card.uid)
-									? 'border-sky-400/60 bg-sky-400/15'
-									: 'border-white/10 bg-white/[0.03] hover:border-white/25'
-							"
-							@click="togglePick(card.uid)">
-							<span
-								class="text-[10.5px] text-white/45 tabular-nums">
-								{{ labelOf(card) }}
-							</span>
-							<PalmResources
-								:items="gainOf(card)"
-								:wild="wildOf(card)"
-								size="xs" />
-						</button>
-					</div>
-					<p v-else class="mt-2 text-[10.5px] text-emerald-200/60">
-						这个行动不需要支付资源。
-					</p>
-
-					<p
-						v-if="wastedHint"
-						class="mt-2 text-[10.5px] leading-4 text-amber-200/70">
-						{{ wastedHint }}
-					</p>
-				</div>
+				<PalmPayPicker
+					:cost="actionSheet.cost"
+					:picked="picked"
+					@update:picked="picked = $event" />
 
 				<div class="flex items-center justify-end gap-2">
 					<button
@@ -1664,6 +1735,54 @@ function saveAndExit() {
 						:disabled="!paymentReady"
 						@click="confirmAction">
 						确认执行
+					</button>
+				</div>
+			</div>
+		</PalmModal>
+
+		<!-- 提交订单：需求 + 资源选择，一次确认完成 -->
+		<PalmModal
+			:show="orderSheet !== null"
+			:title="`提交订单 ${orderSheetOrder?.no ?? ''}`"
+			subtitle="提交只花已储存的资源，不占用这个回合的行动。"
+			max-width="720px"
+			@update:show="closeOrderSheet">
+			<div v-if="orderSheetOrder" class="space-y-3">
+				<div
+					class="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-400/30 bg-amber-400/[0.07] px-3 py-2.5">
+					<div class="flex items-center gap-1.5">
+						<span class="text-[11px] text-amber-100/70">
+							订单需求
+						</span>
+						<PalmResources
+							:items="orderSheetOrder.need"
+							size="sm" />
+					</div>
+					<span
+						class="rounded border border-amber-300/40 bg-amber-400/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-100 tabular-nums">
+						★ +{{ orderSpec(orderSheetOrder.no)?.reward ?? 0 }}
+					</span>
+				</div>
+
+				<PalmPayPicker
+					:cost="orderSheetCost"
+					:picked="orderPicked"
+					@update:picked="orderPicked = $event" />
+
+				<div class="flex items-center justify-end gap-2">
+					<button
+						type="button"
+						class="rounded-full border border-white/10 px-4 py-1.5 text-[11.5px] text-white/55 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
+						@click="closeOrderSheet">
+						取消
+					</button>
+					<button
+						type="button"
+						class="rounded-full px-4 py-1.5 text-[11.5px] font-semibold text-[#031420] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+						style="background: #fbbf24"
+						:disabled="!orderReady"
+						@click="confirmOrder">
+						确认提交
 					</button>
 				</div>
 			</div>
@@ -1749,6 +1868,30 @@ function saveAndExit() {
 				</span>
 			</label>
 
+			<label
+				class="mt-2 flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-2.5 transition-colors"
+				:class="
+					orderOption
+						? 'border-amber-400/45 bg-amber-400/[0.08]'
+						: 'border-white/10 bg-white/[0.03] hover:border-white/25'
+				">
+				<input
+					v-model="orderOption"
+					type="checkbox"
+					class="mt-0.5 h-4 w-4 shrink-0 accent-amber-400" />
+				<span class="min-w-0">
+					<span class="block text-[12px] font-medium text-white/85">
+						启用订单
+					</span>
+					<span
+						class="mt-1 block text-[10.5px] leading-4 text-white/40">
+						开局生成 4 张随机订单：第 3 轮（2 个资源，+1★）、第 5
+						轮（3 个，+2★）、第 7–8 轮（4 个 +4★ / 5 个
+						+6★）。提交不消耗行动，只花已储存的资源。
+					</span>
+				</span>
+			</label>
+
 			<div
 				class="mt-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
 				<div class="flex items-center justify-between gap-2">
@@ -1808,9 +1951,7 @@ function saveAndExit() {
 					type="checkbox"
 					class="mt-0.5 h-4 w-4 shrink-0 accent-emerald-400"
 					@change="
-						setPeekAll(
-							($event.target as HTMLInputElement).checked,
-						)
+						setPeekAll(($event.target as HTMLInputElement).checked)
 					" />
 				<span class="min-w-0">
 					<span class="block text-[12px] font-medium text-white/85">
@@ -1869,6 +2010,17 @@ function saveAndExit() {
 					</div>
 					<p class="mt-3 text-[11.5px] leading-5 text-white/40">
 						共 {{ palm.turn }} 个回合。分数越高，村庄发展得越好。
+					</p>
+					<p
+						v-if="palm.orders.length"
+						class="mt-1.5 text-[11.5px] leading-5 text-amber-200/60">
+						订单完成 {{ palm.completedOrders }} /
+						{{ palm.orders.length }}，订单声望 {{ palm.orderStars
+						}}{{
+							palm.orderBonus
+								? `，完成数量奖励 +${palm.orderBonus}`
+								: ""
+						}}
 					</p>
 					<div class="mt-6 flex flex-col gap-2">
 						<button

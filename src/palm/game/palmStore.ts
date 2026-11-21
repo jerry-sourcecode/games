@@ -7,6 +7,13 @@ import {
     achievementNos,
 } from "../data/achievement";
 import { BasicCardNames, BasicCards } from "../data/data";
+import {
+    makeOrders,
+    orderBonusOf,
+    orderSpec,
+    type PalmOrder,
+    type PalmOrderStatus,
+} from "../data/orders";
 import { VillagerCards, villagerNos } from "../data/villager";
 import type {
     PalmCardSnapshot,
@@ -281,6 +288,11 @@ function cloneState(state: PalmState): PalmState {
             ...task,
             cardNos: [...task.cardNos],
         })),
+        orders: (state.orders ?? []).map((order) => ({
+            ...order,
+            need: { ...order.need },
+        })),
+        orderStars: state.orderStars ?? 0,
     };
 }
 
@@ -310,11 +322,16 @@ export const usePalm = defineStore("palm", () => {
     const startTasks = ref<PalmStartTask[]>([]);
     /** 效果已结算、移出取牌循环的牌（仍留在牌库列表里） */
     const retiredCards = ref<PalmCardInstance[]>([]);
+    /** 订单扩展：4 张订单（未启用时为空） */
+    const orders = ref<PalmOrder[]>([]);
+    /** 订单收益累计的声望 */
+    const orderStars = ref(0);
     const settings = ref<PalmSettings>({
         starter: false,
         villagers: false,
         achievements: [],
         peekAll: false,
+        orders: false,
     });
     /** 每次状态变化自增，供自动存档监听 */
     const revision = ref(0);
@@ -350,11 +367,23 @@ export const usePalm = defineStore("palm", () => {
         const index = deck.value.findIndex((card) => card.cardNo === TRACKER_NO);
         return index < 0 ? 0 : index + 1;
     });
+    /** 已完成订单数 / 结算时的额外声望 */
+    const completedOrders = computed(
+        () => orders.value.filter((order) => order.done).length,
+    );
+    const orderBonus = computed(() => orderBonusOf(completedOrders.value));
+    /** 已打满 8 轮（含刚结束、尚未刷新标记的情况） */
+    const finished = computed(
+        () => gameOver.value || roundsCompleted.value >= ROUNDS,
+    );
     const score = computed(
         () =>
             deck.value.reduce((sum, card) => sum + repuOf(card), 0) +
             retiredCards.value.reduce((sum, card) => sum + repuOf(card), 0) +
-            bonusStars.value,
+            bonusStars.value +
+            orderStars.value +
+            // 订单的完成数量奖励只在结算时计入
+            (finished.value ? orderBonus.value : 0),
     );
     /** 当前待处理的开局效果；为空表示开局已经处理完 */
     const startTask = computed(() => startTasks.value[0] ?? null);
@@ -504,6 +533,11 @@ export const usePalm = defineStore("palm", () => {
             deck: deck.value.map(snapshot),
             retired: retiredCards.value.map(snapshot),
             startTasks: startTasks.value.map((task) => ({ ...task })),
+            orders: orders.value.map((order) => ({
+                ...order,
+                need: { ...order.need },
+            })),
+            orderStars: orderStars.value,
         };
     }
 
@@ -545,6 +579,11 @@ export const usePalm = defineStore("palm", () => {
         startTasks.value = (state.startTasks ?? []).map((task) => ({
             ...task,
         }));
+        orders.value = (state.orders ?? []).map((order) => ({
+            ...order,
+            need: { ...order.need },
+        }));
+        orderStars.value = state.orderStars ?? 0;
         roundsCompleted.value = state.roundsCompleted;
         turn.value = state.turn;
         upgrades.value = state.upgrades ?? 0;
@@ -597,6 +636,8 @@ export const usePalm = defineStore("palm", () => {
         ];
         retiredCards.value = [];
         startTasks.value = buildStartTasks();
+        orders.value = settings.value.orders ? makeOrders() : [];
+        orderStars.value = 0;
         roundsCompleted.value = 0;
         turn.value = 0;
         upgrades.value = 0;
@@ -929,6 +970,45 @@ export const usePalm = defineStore("palm", () => {
         return true;
     }
 
+    function orderStatus(order: PalmOrder): PalmOrderStatus {
+        const spec = orderSpec(order.no);
+        if (!spec) return "hidden";
+        if (order.done) return "done";
+        const current = round.value;
+        if (current < spec.reveal) return "hidden";
+        if (current < spec.from) return "waiting";
+        if (current > spec.to) return "expired";
+        return "open";
+    }
+
+    /** 订单需求作为一笔花费（不享受建筑工减免） */
+    const orderCost = (order: PalmOrder): PalmCost => [{ ...order.need }];
+
+    /** 当前能否提交这张订单 */
+    function canSubmitOrder(order: PalmOrder): boolean {
+        return (
+            !gameOver.value &&
+            orderStatus(order) === "open" &&
+            canAfford(orderCost(order))
+        );
+    }
+
+    /** 提交订单：只花已储存资源，不消耗行动 */
+    function submitOrder(no: number, payUids: string[] = []): boolean {
+        if (gameOver.value) return false;
+        const order = orders.value.find((item) => item.no === no);
+        if (!order || orderStatus(order) !== "open") return false;
+        if (!payWith(payUids, orderCost(order))) return false;
+        const spec = orderSpec(no);
+        order.done = true;
+        const reward = spec?.reward ?? 0;
+        orderStars.value += reward;
+        lastEvent.value = `提交了订单 ${no}，获得 ${reward}★。`;
+        pushStep(`提交订单 ${no}`);
+        revision.value += 1;
+        return true;
+    }
+
     /** 撤回上一步 */
     function undo(): boolean {
         if (!canUndo.value) return false;
@@ -977,7 +1057,15 @@ export const usePalm = defineStore("palm", () => {
                         (sum, card) =>
                             sum + repuAt(card.cardNo, card.area, card.source),
                         0,
-                    ) + (state.bonusStars ?? 0),
+                    ) +
+                    (state.bonusStars ?? 0) +
+                    (state.orderStars ?? 0) +
+                    (state.roundsCompleted >= ROUNDS
+                        ? orderBonusOf(
+                              (state.orders ?? []).filter((order) => order.done)
+                                  .length,
+                          )
+                        : 0),
                 upgrades: state.upgrades ?? 0,
                 top: state.deck.slice(0, 2).map((card) => ({
                     cardNo: card.cardNo,
@@ -1023,6 +1111,14 @@ export const usePalm = defineStore("palm", () => {
         canActivate,
         activateReason,
         blockedReason,
+        orders,
+        orderStars,
+        completedOrders,
+        orderBonus,
+        orderStatus,
+        orderCost,
+        canSubmitOrder,
+        submitOrder,
         topCards,
         peekCards,
         trackerCard,

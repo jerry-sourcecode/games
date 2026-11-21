@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import type { PalmArea, PalmCardSource, PalmCondition } from "../game/palmStore";
 import { achievementAreas } from "./achievement";
+import { ORDER_SPECS, type PalmOrder } from "./orders";
 
 /** 单张牌在某一刻的状态 */
 export interface PalmCardSnapshot {
@@ -45,6 +46,10 @@ export interface PalmState {
 	retired?: PalmCardSnapshot[];
 	/** 尚未处理的开局效果 */
 	startTasks?: PalmStartTask[];
+	/** 订单扩展：4 张随机订单（未启用时为空） */
+	orders?: PalmOrder[];
+	/** 订单收益累计的声望 */
+	orderStars?: number;
 }
 
 /** 回放 / 撤回用的一步 */
@@ -62,6 +67,8 @@ export interface PalmSettings {
 	achievements: number[];
 	/** 允许查看完整的牌库顺序（默认只看牌库顶 3 张） */
 	peekAll: boolean;
+	/** 订单扩展：4 张随机订单 */
+	orders: boolean;
 }
 
 export interface PalmSaveFile {
@@ -73,13 +80,14 @@ export interface PalmSaveFile {
 const SAVE_KEY = "palm-island:save";
 const SETTINGS_KEY = "palm-island:settings";
 /** 存档格式版本；数据结构变动时递增，旧存档会被丢弃 */
-const SAVE_VERSION = 4;
+const SAVE_VERSION = 5;
 
 export const DEFAULT_SETTINGS: PalmSettings = {
 	starter: false,
 	villagers: false,
 	achievements: [],
 	peekAll: false,
+	orders: false,
 };
 
 function isCondition(value: unknown): value is PalmCondition {
@@ -137,6 +145,15 @@ function isStartTask(value: unknown): value is PalmStartTask {
 	return task.cardNos.every((no) => Number.isInteger(no));
 }
 
+function isOrder(value: unknown): value is PalmOrder {
+	if (!value || typeof value !== "object") return false;
+	const order = value as Partial<PalmOrder>;
+	if (!Number.isInteger(order.no)) return false;
+	if (order.no < 1 || order.no > ORDER_SPECS.length) return false;
+	if (!isCondition(order.need)) return false;
+	return typeof order.done === "boolean";
+}
+
 export function isState(value: unknown): value is PalmState {
 	if (!value || typeof value !== "object") return false;
 	const state = value as Partial<PalmState>;
@@ -150,6 +167,22 @@ export function isState(value: unknown): value is PalmState {
 	if (state.startTasks !== undefined) {
 		if (!Array.isArray(state.startTasks)) return false;
 		if (!state.startTasks.every(isStartTask)) return false;
+	}
+	if (state.orders !== undefined) {
+		if (!Array.isArray(state.orders)) return false;
+		if (!state.orders.every(isOrder)) return false;
+		if (
+			new Set(state.orders.map((order) => order.no)).size !==
+			state.orders.length
+		) {
+			return false;
+		}
+	}
+	if (
+		state.orderStars !== undefined &&
+		(!Number.isInteger(state.orderStars) || state.orderStars < 0)
+	) {
+		return false;
 	}
 	if (!Number.isInteger(state.turn) || (state.turn ?? -1) < 0) return false;
 	if (
@@ -265,6 +298,7 @@ export const usePalmSave = defineStore("palmSave", () => {
 				starter: parsed?.starter === true,
 				villagers: parsed?.villagers === true,
 				peekAll: parsed?.peekAll === true,
+				orders: parsed?.orders === true,
 				achievements: Array.isArray(parsed?.achievements)
 					? parsed.achievements.filter(
 							(n) => Number.isInteger(n) && n >= 1 && n <= 9,
