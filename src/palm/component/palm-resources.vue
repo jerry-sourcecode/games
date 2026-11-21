@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import PalmItemIcon from "./palm-item-icon.vue";
 import { toChips, type PalmCondition } from "./palm-chips";
 
 const props = withDefaults(
@@ -20,20 +21,16 @@ const chipClass = computed(() =>
 </script>
 
 <template>
-	<span class="inline-flex flex-wrap items-center gap-1">
-		<span
+	<span class="inline-flex flex-wrap items-center gap-1.5">
+		<PalmItemIcon
 			v-for="chip in chips"
 			:key="chip.item"
-			:class="[
-				'rounded border font-medium tabular-nums',
-				chip.tone,
-				chipClass,
-			]">
-			{{ chip.amount }}{{ chip.label }}
-		</span>
+			:item="chip.item"
+			:amount="chip.amount"
+			:size="size" />
 		<span
 			v-if="wildCount"
-			:title="'万能资源：支付时可当作任意一种资源'"
+			title="万能资源：支付时可当作任意一种资源"
 			:class="[
 				'rounded border border-fuchsia-300/40 bg-fuchsia-400/15 font-medium text-fuchsia-100 tabular-nums',
 				chipClass,

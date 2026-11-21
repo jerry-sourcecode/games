@@ -64,7 +64,7 @@ export const VillagerCards: Record<string, Palm.PartialCard> = {
             repu: -6,
             // Free 生产，三种资源各拿 1 个
             produce: { gain: { Log: 1, Fish: 1, Rock: 1 }, cons: [] },
-            note: "生产时：木 / 鱼 / 石各拿 1 个",
+            note: ["生产时：", { Log: 1, Fish: 1, Rock: 1 }, " 各拿 1 个"],
         },
     },
 };

@@ -4,6 +4,7 @@ import PalmCardArea from "./component/palm-card-area.vue";
 import PalmCost from "./component/palm-cost.vue";
 import PalmModal from "./component/palm-modal.vue";
 import PalmResources from "./component/palm-resources.vue";
+import PalmRichText from "./component/palm-rich-text.vue";
 import type { PalmCondition, PalmItem } from "./component/palm-chips";
 import {
 	ACHIEVEMENT_HINT,
@@ -82,7 +83,8 @@ const showcaseWidth = ref(300);
 const confirmWidth = ref(240);
 const columns = ref(2);
 
-const priceSheet = ref<{
+/** 行动确认框：预览变更后的样子，并在同一个弹窗里选好支付资源 */
+const actionSheet = ref<{
 	index: number;
 	kind: PalmActionKind;
 	cost: PalmCondition[];
@@ -97,17 +99,9 @@ const deckShow = ref(false);
 /** 全牌库一览里每张牌的宽度 */
 const deckCardWidth = ref(120);
 /** 开局效果候选牌的宽度 */
-const startCardWidth =
-	ref(160); /** 正在预览其余朝向的牌（按牌库顶下标 0 / 1） */
+const startCardWidth = ref(160);
+/** 正在预览其余朝向的牌（按牌库顶下标 0 / 1） */
 const previewIndex = ref<number | null>(null);
-/** 旋转 / 翻面的确认框 */
-const transform = ref<{
-	index: number;
-	kind: "rotate" | "flip";
-	from: PalmArea;
-	to: PalmArea;
-	cost: PalmCondition[];
-} | null>(null);
 
 function togglePreview(index: number) {
 	previewIndex.value = previewIndex.value === index ? null : index;
@@ -294,37 +288,43 @@ function applyStartMove() {
 	if (palm.resolveStartMove(uid)) startPick.value = null;
 }
 
-/** 旋转 / 翻面确认框里展示的那张牌 */
-const transformCard = computed(() => {
-	const current = transform.value;
-	if (!current) return null;
-	return palm.topCards[current.index] ?? null;
+/** 行动确认框里展示的那张牌 */
+const actionCard = computed(() => {
+	const sheet = actionSheet.value;
+	if (!sheet) return null;
+	return palm.topCards[sheet.index] ?? null;
 });
 
-const transformLabel = computed(() =>
-	transformCard.value ? labelOf(transformCard.value) : "",
-);
+/** 这个行动会把牌换成哪个朝向；生产保持当前朝向 */
+const actionTo = computed<PalmArea | null>(() => {
+	const sheet = actionSheet.value;
+	const card = actionCard.value;
+	if (!sheet || !card) return null;
+	if (sheet.kind === "rotate") return rotatedArea(card.area);
+	if (sheet.kind === "flip") return flippedArea(card.area);
+	return card.area;
+});
 
 /** 变更后朝向的产出与星星 */
-const transformGain = computed(() => {
-	const card = transformCard.value;
-	const current = transform.value;
-	if (!card || !current) return {};
-	return gainAt(card.cardNo, current.to, card.source);
+const actionGain = computed(() => {
+	const card = actionCard.value;
+	const to = actionTo.value;
+	if (!card || to === null) return {};
+	return gainAt(card.cardNo, to, card.source);
 });
 
-const transformWild = computed(() => {
-	const card = transformCard.value;
-	const current = transform.value;
-	if (!card || !current) return 0;
-	return wildAt({ ...card, area: current.to });
+const actionWild = computed(() => {
+	const card = actionCard.value;
+	const to = actionTo.value;
+	if (!card || to === null) return 0;
+	return wildAt({ ...card, area: to });
 });
 
-const transformRepu = computed(() => {
-	const card = transformCard.value;
-	const current = transform.value;
-	if (!card || !current) return 0;
-	return repuAt(card.cardNo, current.to, card.source);
+const actionRepu = computed(() => {
+	const card = actionCard.value;
+	const to = actionTo.value;
+	if (!card || to === null) return 0;
+	return repuAt(card.cardNo, to, card.source);
 });
 
 const previewCard = computed(() => {
@@ -454,46 +454,27 @@ function actionsOf(card: PalmCardInstance | undefined): ActionView[] {
 	return list;
 }
 
-/** 有需要支付的费用就打开支付面板，否则直接执行 */
-function runAction(index: number, kind: PalmActionKind, cost: PalmCondition[]) {
-	if (!cost.length) {
-		palm.perform(index, kind);
-		return;
-	}
-	priceSheet.value = { index, kind, cost };
-	picked.value = palm.findPayment(cost) ?? [];
+/** 打开行动确认框（预览 + 支付选择在同一个弹窗里） */
+function openActionSheet(
+	index: number,
+	kind: PalmActionKind,
+	cost: PalmCondition[],
+) {
+	actionSheet.value = { index, kind, cost };
+	picked.value = cost.length ? (palm.findPayment(cost) ?? []) : [];
 }
 
 function pickAction(index: number, action: ActionView) {
 	if (palm.gameOver) return;
 	if (!action.affordable) return;
 
-	// 旋转 / 翻面会改变牌面，先弹出确认框展示变更后的样子
-	if (action.kind !== "produce") {
-		const card = palm.topCards[index];
-		if (!card) return;
-		transform.value = {
-			index,
-			kind: action.kind,
-			from: card.area,
-			to:
-				action.kind === "rotate"
-					? rotatedArea(card.area)
-					: flippedArea(card.area),
-			cost: action.cost,
-		};
+	// 旋转 / 翻面会改变牌面，一律先确认；生产只在需要付费时确认
+	const needsConfirm = action.kind !== "produce" || action.cost.length > 0;
+	if (!needsConfirm) {
+		palm.perform(index, action.kind);
 		return;
 	}
-
-	runAction(index, action.kind, action.cost);
-}
-
-/** 确认旋转 / 翻面：免费则直接执行，需要付费则进入支付面板 */
-function confirmTransform() {
-	const current = transform.value;
-	if (!current) return;
-	transform.value = null;
-	runAction(current.index, current.kind, current.cost);
+	openActionSheet(index, action.kind, action.cost);
 }
 
 const pickedSum = computed<PalmCondition>(() => {
@@ -518,14 +499,14 @@ const pickedWild = computed(() =>
 );
 
 const paymentReady = computed(() => {
-	const sheet = priceSheet.value;
+	const sheet = actionSheet.value;
 	if (!sheet) return false;
 	if (!sheet.cost.length) return true;
 	return palm.canPay(picked.value, sheet.cost);
 });
 
 const wastedHint = computed(() => {
-	const sheet = priceSheet.value;
+	const sheet = actionSheet.value;
 	if (!sheet || !picked.value.length) return null;
 	// 万能资源几乎总会有富余，只有纯普通资源时才提示作废
 	if (pickedWild.value) return null;
@@ -543,16 +524,17 @@ function togglePick(uid: string) {
 		: [...picked.value, uid];
 }
 
-function confirmPayment() {
-	const sheet = priceSheet.value;
+/** 确认执行：一次点击完成「预览确认 + 支付」 */
+function confirmAction() {
+	const sheet = actionSheet.value;
 	if (!sheet || !paymentReady.value) return;
 	palm.perform(sheet.index, sheet.kind, picked.value);
-	priceSheet.value = null;
+	actionSheet.value = null;
 	picked.value = [];
 }
 
 function closeSheet() {
-	priceSheet.value = null;
+	actionSheet.value = null;
 	picked.value = [];
 }
 
@@ -566,7 +548,6 @@ function restart() {
 	closeSheet();
 	peekShow.value = false;
 	previewIndex.value = null;
-	transform.value = null;
 	restartConfirm.value = false;
 	settingsShow.value = false;
 	palmSave.clear();
@@ -606,7 +587,6 @@ function undoStep() {
 	if (!palm.canUndo) return;
 	// 撤回会重建卡牌实例，之前选中的资源 uid 全部失效，相关面板需要关闭
 	closeSheet();
-	transform.value = null;
 	previewIndex.value = null;
 	palm.undo();
 }
@@ -867,7 +847,7 @@ function saveAndExit() {
 							</div>
 							<p
 								class="mt-0.5 text-[10.5px] leading-4 text-white/55">
-								{{ view.ability.note }}
+								<PalmRichText :value="view.ability.note" />
 							</p>
 						</div>
 
@@ -1011,13 +991,14 @@ function saveAndExit() {
 									)
 								"
 								class="mt-0.5 text-[10px] leading-4 text-white/40">
-								{{
-									abilityInfo(
-										card.cardNo,
-										card.area,
-										card.source,
-									)?.note
-								}}
+								<PalmRichText
+									:value="
+										abilityInfo(
+											card.cardNo,
+											card.area,
+											card.source,
+										)?.note
+									" />
 							</p>
 							<button
 								v-if="
@@ -1207,7 +1188,7 @@ function saveAndExit() {
 					<p
 						v-if="item.ability"
 						class="text-center text-[10.5px] leading-4 text-violet-200/60">
-						{{ item.ability.note }}
+						<PalmRichText :value="item.ability.note" />
 					</p>
 
 					<div
@@ -1261,7 +1242,7 @@ function saveAndExit() {
 			<div v-if="palm.startTask" class="space-y-3">
 				<p
 					class="rounded-xl border border-violet-400/25 bg-violet-400/[0.08] px-3 py-2 text-[12px] leading-5 text-violet-100/80">
-					{{ palm.startTask.note }}
+					<PalmRichText :value="palm.startTask.note" />
 				</p>
 
 				<div
@@ -1515,92 +1496,175 @@ function saveAndExit() {
 			</div>
 		</PalmModal>
 
-		<!-- 旋转 / 翻面确认 -->
+		<!-- 行动确认：预览变更 + 选择支付资源，一次确认完成 -->
 		<PalmModal
-			:show="transform !== null"
-			:title="`${transform ? ACTION_META[transform.kind].label : ''}${transformLabel}`"
-			subtitle="确认后这张牌会移到牌库底；下面是变更后的样子。"
-			max-width="760px"
-			@update:show="transform = null">
-			<div v-if="transform && palm.topCards[transform.index]">
-				<div class="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+			:show="actionSheet !== null"
+			:title="
+				actionSheet
+					? `${ACTION_META[actionSheet.kind].label} ${
+							actionCard ? labelOf(actionCard) : ''
+						}`
+					: '行动确认'
+			"
+			:subtitle="
+				actionSheet?.kind === 'produce'
+					? '确认后这张牌会横置成资源并放到牌库底；下方已为你选好要支付的资源。'
+					: '确认后这张牌会移到牌库底；下面是变更后的样子和支付方式。'
+			"
+			max-width="860px"
+			@update:show="closeSheet">
+			<div v-if="actionSheet && actionCard" class="space-y-3">
+				<div
+					class="grid grid-cols-[1fr_auto_1fr] items-start gap-3">
 					<figure class="flex flex-col items-center gap-2">
 						<figcaption class="text-[10.5px] text-white/35">
 							当前 ·
-							{{
-								transformCard
-									? areaName(transformCard, transform.from)
-									: ""
-							}}
+							{{ areaName(actionCard, actionCard.area) }}
 						</figcaption>
 						<PalmCardArea
-							v-if="transformCard"
-							class="border border-white/10 opacity-70"
-							:card-no="transformCard.cardNo"
-							:source="transformCard.source"
-							:area="transform.from"
+							class="border border-white/10"
+							:class="
+								actionSheet.kind === 'produce'
+									? ''
+									: 'opacity-70'
+							"
+							:card-no="actionCard.cardNo"
+							:source="actionCard.source"
+							:area="actionCard.area"
 							:width="confirmWidth" />
 					</figure>
 
-					<span aria-hidden="true" class="text-lg text-white/25">
+					<span
+						aria-hidden="true"
+						class="self-center text-lg text-white/25">
 						→
 					</span>
 
 					<figure class="flex flex-col items-center gap-2">
 						<figcaption
 							class="rounded-full border border-sky-300/35 bg-sky-400/12 px-2 py-0.5 text-[10.5px] font-medium text-sky-200">
-							变更后 ·
 							{{
-								transformCard
-									? areaName(transformCard, transform.to)
+								actionSheet.kind === "produce"
+									? "生产后"
+									: "变更后"
+							}}
+							·
+							{{
+								actionTo !== null
+									? areaName(actionCard, actionTo)
 									: ""
 							}}
 						</figcaption>
 						<PalmCardArea
-							v-if="transformCard"
+							v-if="actionSheet.kind !== 'produce'"
 							class="ring-2 ring-sky-400/45"
-							:card-no="transformCard.cardNo"
-							:source="transformCard.source"
-							:area="transform.to"
+							:card-no="actionCard.cardNo"
+							:source="actionCard.source"
+							:area="actionTo ?? actionCard.area"
 							:width="confirmWidth" />
+						<div
+							v-if="actionSheet.kind === 'produce'"
+							class="flex w-full max-w-[280px] flex-wrap items-center justify-center gap-1.5 rounded-xl border border-emerald-400/30 bg-emerald-400/[0.08] px-2 py-1.5">
+							<span class="text-[10.5px] text-emerald-200/70">
+								横置为资源
+							</span>
+							<PalmResources
+								:items="actionGain"
+								:wild="actionWild"
+								size="xs" />
+						</div>
+						<div
+							v-else
+							class="flex flex-wrap items-center justify-center gap-1.5">
+							<span class="text-[10.5px] text-white/30">
+								产出
+							</span>
+							<PalmResources
+								:items="actionGain"
+								:wild="actionWild"
+								size="xs" />
+							<span
+								v-if="actionRepu !== 0"
+								class="rounded border border-amber-300/35 bg-amber-400/15 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-100 tabular-nums">
+								★ {{ actionRepu }}
+							</span>
+						</div>
 					</figure>
 				</div>
 
 				<div
-					class="mt-4 flex flex-wrap items-center justify-between gap-3">
-					<div class="flex items-center gap-2">
-						<span class="text-[11px] text-white/35">费用</span>
-						<PalmCost :cost="transform.cost" size="xs" />
-						<span class="text-[11px] text-white/25">·</span>
-						<span class="text-[11px] text-white/35"
-							>变更后产出</span
-						>
-						<PalmResources
-							:items="transformGain"
-							:wild="transformWild"
-							size="xs" />
-						<span
-							v-if="transformRepu !== 0"
-							class="rounded border border-amber-300/35 bg-amber-400/15 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-100 tabular-nums">
-							★ {{ transformRepu }}
-						</span>
+					class="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<div class="flex items-center gap-1.5">
+							<span class="text-[11px] text-white/35">费用</span>
+							<PalmCost :cost="actionSheet.cost" size="xs" />
+						</div>
+						<div class="flex items-center gap-1.5">
+							<span class="text-[11px] text-white/35">已选合计</span>
+							<PalmResources
+								:items="pickedSum"
+								:wild="pickedWild"
+								size="xs" />
+							<template v-if="palm.hasBonus">
+								<span class="text-[10px] text-white/25">+</span>
+								<PalmResources :items="palm.bonus" size="xs" />
+								<span class="text-[10px] text-sky-200/50">
+									开局补给优先扣除
+								</span>
+							</template>
+						</div>
 					</div>
 
-					<div class="flex items-center gap-2">
+					<div
+						v-if="actionSheet.cost.length"
+						class="mt-2.5 flex flex-wrap gap-1.5">
 						<button
+							v-for="card in palm.storedCards"
+							:key="card.uid"
 							type="button"
-							class="rounded-full border border-white/10 px-4 py-1.5 text-[11.5px] text-white/55 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
-							@click="transform = null">
-							取消
-						</button>
-						<button
-							type="button"
-							class="rounded-full px-4 py-1.5 text-[11.5px] font-semibold text-[#031420] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
-							style="background: #38bdf8"
-							@click="confirmTransform">
-							{{ transform.cost.length ? "继续支付" : "确认" }}
+							class="flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
+							:class="
+								picked.includes(card.uid)
+									? 'border-sky-400/60 bg-sky-400/15'
+									: 'border-white/10 bg-white/[0.03] hover:border-white/25'
+							"
+							@click="togglePick(card.uid)">
+							<span
+								class="text-[10.5px] text-white/45 tabular-nums">
+								{{ labelOf(card) }}
+							</span>
+							<PalmResources
+								:items="gainOf(card)"
+								:wild="wildOf(card)"
+								size="xs" />
 						</button>
 					</div>
+					<p v-else class="mt-2 text-[10.5px] text-emerald-200/60">
+						这个行动不需要支付资源。
+					</p>
+
+					<p
+						v-if="wastedHint"
+						class="mt-2 text-[10.5px] leading-4 text-amber-200/70">
+						{{ wastedHint }}
+					</p>
+				</div>
+
+				<div class="flex items-center justify-end gap-2">
+					<button
+						type="button"
+						class="rounded-full border border-white/10 px-4 py-1.5 text-[11.5px] text-white/55 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
+						@click="closeSheet">
+						取消
+					</button>
+					<button
+						type="button"
+						class="rounded-full px-4 py-1.5 text-[11.5px] font-semibold text-[#031420] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+						style="background: #38bdf8"
+						:disabled="!paymentReady"
+						@click="confirmAction">
+						确认执行
+					</button>
 				</div>
 			</div>
 		</PalmModal>
@@ -1648,7 +1712,7 @@ function saveAndExit() {
 					class="mt-0.5 h-4 w-4 shrink-0 accent-sky-400" />
 				<span class="min-w-0">
 					<span class="block text-[12px] font-medium text-white/85">
-						开局携带 1 石 + 1 鱼 + 1 木
+						开局携带额外资源
 					</span>
 					<span
 						class="mt-1 block text-[10.5px] leading-4 text-white/40">
@@ -1725,7 +1789,7 @@ function saveAndExit() {
 							</span>
 							<span
 								class="mt-0.5 block text-[10px] leading-3.5 text-white/35">
-								{{ ACHIEVEMENT_HINT[no] }}
+								<PalmRichText :value="ACHIEVEMENT_HINT[no]" />
 							</span>
 						</span>
 					</label>
@@ -1776,98 +1840,6 @@ function saveAndExit() {
 				</button>
 			</div>
 		</PalmModal>
-
-		<!-- 支付面板 -->
-		<Transition name="sheet">
-			<div
-				v-if="priceSheet"
-				class="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0b1220]/95 px-4 pt-3 pb-4 backdrop-blur">
-				<div class="mx-auto w-full max-w-2xl">
-					<div class="flex items-center justify-between gap-3">
-						<div>
-							<p class="text-[12.5px] font-semibold text-white">
-								选择支付资源
-							</p>
-							<div class="mt-1 flex items-center gap-1.5">
-								<span class="text-[10.5px] text-white/35"
-									>需要</span
-								>
-								<PalmCost :cost="priceSheet.cost" size="xs" />
-							</div>
-						</div>
-						<div class="text-right">
-							<p class="text-[10.5px] text-white/35">已选合计</p>
-							<div
-								class="mt-1 flex items-center justify-end gap-1.5">
-								<PalmResources
-									:items="pickedSum"
-									:wild="pickedWild"
-									size="xs" />
-								<template v-if="palm.hasBonus">
-									<span class="text-[10px] text-white/25"
-										>+</span
-									>
-									<PalmResources
-										:items="palm.bonus"
-										size="xs" />
-								</template>
-							</div>
-							<p
-								v-if="palm.hasBonus"
-								class="mt-1 text-[10px] text-sky-200/50">
-								开局补给优先扣除
-							</p>
-						</div>
-					</div>
-
-					<div class="mt-3 flex flex-wrap gap-1.5">
-						<button
-							v-for="card in palm.storedCards"
-							:key="card.uid"
-							type="button"
-							class="flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
-							:class="
-								picked.includes(card.uid)
-									? 'border-sky-400/60 bg-sky-400/15'
-									: 'border-white/10 bg-white/[0.03] hover:border-white/25'
-							"
-							@click="togglePick(card.uid)">
-							<span
-								class="text-[10.5px] text-white/45 tabular-nums">
-								{{ card.cardNo }} 号
-							</span>
-							<PalmResources
-								:items="gainOf(card)"
-								:wild="wildOf(card)"
-								size="xs" />
-						</button>
-					</div>
-
-					<p
-						v-if="wastedHint"
-						class="mt-2 text-[10.5px] leading-4 text-amber-200/70">
-						{{ wastedHint }}
-					</p>
-
-					<div class="mt-3 flex items-center justify-end gap-2">
-						<button
-							type="button"
-							class="rounded-full border border-white/10 px-4 py-1.5 text-[11.5px] text-white/55 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
-							@click="closeSheet">
-							取消
-						</button>
-						<button
-							type="button"
-							class="rounded-full px-4 py-1.5 text-[11.5px] font-semibold text-[#031420] transition-opacity focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
-							style="background: #38bdf8"
-							:disabled="!paymentReady"
-							@click="confirmPayment">
-							确认支付
-						</button>
-					</div>
-				</div>
-			</div>
-		</Transition>
 
 		<!-- 结算 -->
 		<Transition name="sheet">

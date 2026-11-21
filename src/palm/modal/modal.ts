@@ -32,6 +32,9 @@ export namespace Palm {
               id: "freeProduce";
               gain: Condition;
           };
+    /** 混排文字与资源图标的富文本：字符串是文字，Condition 是一组资源 */
+    export type Rich = Array<string | Condition>;
+
     export class Content {
         name?: string;
         /**
@@ -48,8 +51,8 @@ export namespace Palm {
          * housesUpgraded = 需要几张「房屋」已经升级到朝向 3 或更高。
          */
         require?: { housesUpgraded?: number };
-        /** 未实装能力的牌面说明 */
-        note?: string;
+        /** 未实装能力的牌面说明；需要资源图标时用富文本 */
+        note?: string | Rich;
     }
     export type Card = Record<1 | 2 | 3 | 4, Content>;
     /** 只用到部分朝向的牌（村民卡只有招募面与村民面） */

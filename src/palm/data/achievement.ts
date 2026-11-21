@@ -1,5 +1,6 @@
 import { Palm } from "../modal/modal";
 import type { PalmArea } from "../game/palmStore";
+import type { PalmRich } from "../component/palm-chips";
 
 /**
  * 四朝向功绩卡 a 面的上下分界（占卡面高度的比例）。
@@ -149,15 +150,36 @@ export function achievementAreas(cardNo: number): PalmArea[] {
     return ACHIEVEMENT_LAYOUT[cardNo] === "quad" ? [2, 4, 3] : [2];
 }
 
-/** 设置界面用的简短说明 */
-export const ACHIEVEMENT_HINT: Record<number, string> = {
+/** 设置界面用的简短说明；资源部分会渲染成图标 */
+export const ACHIEVEMENT_HINT: Record<number, PalmRich> = {
     1: "游戏开始时，一个船屋升级 1⬆",
-    2: "免费生产，产出 1木 1鱼 1石（每场一次）",
-    3: "免费生产，产出 1石",
-    4: "付 1木1鱼 翻面 → ★1（免费产 1木1鱼1石），再付 1木1鱼1石 旋转到 ★2",
-    5: "2 张房屋升到 3⬆ 更高后翻面 → ★1，再付 3木3鱼3石 旋转到 ★5",
-    6: "付 1木1鱼 翻面 → ★1（3石 → 2木2鱼），旋转免费，收益变为 4石",
+    2: ["免费生产，产出", { Log: 1, Fish: 1, Rock: 1 }, "（每场一次）"],
+    3: ["免费生产，产出", { Rock: 1 }],
+    4: [
+        "付",
+        { Log: 1, Fish: 1 },
+        " 翻面 → ★1（免费产",
+        { Log: 1, Fish: 1, Rock: 1 },
+        "），再付",
+        { Log: 1, Fish: 1, Rock: 1 },
+        " 旋转到 ★2",
+    ],
+    5: [
+        "2 张房屋升到 3⬆ 更高后翻面 → ★1，再付",
+        { Log: 3, Fish: 3, Rock: 3 },
+        " 旋转到 ★5",
+    ],
+    6: [
+        "付",
+        { Log: 1, Fish: 1 },
+        " 翻面 → ★1（",
+        { Rock: 3 },
+        " → ",
+        { Log: 2, Fish: 2 },
+        "），旋转免费，收益变为",
+        { Rock: 4 },
+    ],
     7: "游戏开始时，将任意一张牌移到牌组前面",
-    8: "免费生产，产出 1木 1鱼",
+    8: ["免费生产，产出", { Log: 1, Fish: 1 }],
     9: "游戏开始时，一个樵夫升级 1⬆",
 };
