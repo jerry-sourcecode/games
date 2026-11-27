@@ -4,6 +4,7 @@ import GameIntro from "@/components/GameIntro.vue";
 import { habitGame } from "@/habits/data/habitData";
 import HabitsIndex from "@/habits/habits-index.vue";
 import { useHabitsRecord } from "@/habits/data/gameRecord";
+import { useCloudSave } from "@/cloud/store";
 import { NDataTable } from "naive-ui";
 import { h } from "vue";
 import { formatDateTime } from "@/utils/utils";
@@ -11,6 +12,10 @@ import type { HabitsResultRecord } from "@/habits/modal/habitModal";
 
 const started = ref(false);
 const habitsRecord = useHabitsRecord();
+const cloud = useCloudSave();
+
+// 进游戏前先拉一次云存档，记录列表才是最新的
+void cloud.ready();
 </script>
 
 <template>

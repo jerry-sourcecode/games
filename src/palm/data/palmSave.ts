@@ -77,8 +77,9 @@ export interface PalmSaveFile {
     steps: PalmStep[];
 }
 
-const SAVE_KEY = "palm-island:save";
-const SETTINGS_KEY = "palm-island:settings";
+/** 对局存档 / 本地设置在 localStorage 里的键；云存档同步时也会写这两个键 */
+export const PALM_SAVE_KEY = "palm-island:save";
+export const PALM_SETTINGS_KEY = "palm-island:settings";
 /** 存档格式版本；数据结构变动时递增，旧存档会被丢弃 */
 const SAVE_VERSION = 5;
 
@@ -244,7 +245,7 @@ export const usePalmSave = defineStore("palmSave", () => {
         snapshot.value = null;
         savedAt.value = null;
         try {
-            localStorage.removeItem(SAVE_KEY);
+            localStorage.removeItem(PALM_SAVE_KEY);
         } catch {
             // 隐私模式下 localStorage 不可用时忽略
         }
@@ -254,7 +255,7 @@ export const usePalmSave = defineStore("palmSave", () => {
     function load(): PalmSaveFile | null {
         let raw: string | null = null;
         try {
-            raw = localStorage.getItem(SAVE_KEY);
+            raw = localStorage.getItem(PALM_SAVE_KEY);
         } catch {
             return null;
         }
@@ -282,7 +283,7 @@ export const usePalmSave = defineStore("palmSave", () => {
         snapshot.value = payload;
         savedAt.value = payload.savedAt;
         try {
-            localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
+            localStorage.setItem(PALM_SAVE_KEY, JSON.stringify(payload));
         } catch {
             // 写入失败（配额 / 隐私模式）时保留内存快照
         }
@@ -290,7 +291,7 @@ export const usePalmSave = defineStore("palmSave", () => {
 
     function loadSettings(): PalmSettings {
         try {
-            const raw = localStorage.getItem(SETTINGS_KEY);
+            const raw = localStorage.getItem(PALM_SETTINGS_KEY);
             if (!raw) return { ...settings.value };
             const parsed = JSON.parse(raw) as Partial<PalmSettings>;
             settings.value = {
@@ -314,7 +315,7 @@ export const usePalmSave = defineStore("palmSave", () => {
     function saveSettings(next: PalmSettings) {
         settings.value = { ...next };
         try {
-            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings.value));
+            localStorage.setItem(PALM_SETTINGS_KEY, JSON.stringify(settings.value));
         } catch {
             // 忽略写入失败
         }

@@ -13,6 +13,7 @@ import {
 	type PalmReplayStep,
 } from "@/palm/data/palmRecord";
 import { usePalmSave } from "@/palm/data/palmSave";
+import { useCloudSave } from "@/cloud/store";
 import { NDataTable } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import { formatDateTime } from "@/utils/utils";
@@ -20,8 +21,13 @@ import { formatDateTime } from "@/utils/utils";
 const started = ref(false);
 const palmRecord = usePalmRecord();
 const palmSave = usePalmSave();
+const cloud = useCloudSave();
 
-onMounted(() => palmSave.load());
+onMounted(async () => {
+	// 先等云存档同步完成，再决定「继续游戏」按钮的状态
+	await cloud.ready();
+	palmSave.load();
+});
 
 /** 有未完成的存档时，按钮改成「继续游戏」 */
 const introGame = computed(() =>

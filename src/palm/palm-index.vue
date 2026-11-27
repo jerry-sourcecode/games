@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useCloudSave } from "@/cloud/store";
 import PalmCardArea from "./component/palm-card-area.vue";
 import PalmCost from "./component/palm-cost.vue";
 import PalmModal from "./component/palm-modal.vue";
@@ -45,6 +46,7 @@ const emit = defineEmits<{ exit: [] }>();
 
 const palm = usePalm();
 const palmSave = usePalmSave();
+const cloud = useCloudSave();
 /** 重开确认框 */
 const restartConfirm = ref(false);
 /** 新局设置框 */
@@ -72,6 +74,7 @@ function setPeekAll(value: boolean) {
 		peekAll: value,
 		orders: orderOption.value,
 	});
+	cloud.markDirty();
 }
 
 function toggleAchievement(no: number) {
@@ -585,6 +588,7 @@ function startNewGame() {
 		peekAll: peekAllOption.value,
 		orders: orderOption.value,
 	});
+	cloud.markDirty();
 	restart();
 }
 
@@ -644,7 +648,9 @@ function measure() {
 
 let observer: ResizeObserver | undefined;
 
-onMounted(() => {
+onMounted(async () => {
+	// 先等云存档拉取完成，再用本地数据初始化这一局
+	await cloud.ready();
 	palmSave.loadSettings();
 	starterOption.value = palmSave.settings.starter;
 	villagerOption.value = palmSave.settings.villagers;
@@ -687,9 +693,11 @@ watch(
 		if (!palm.deck.length) return;
 		if (palm.gameOver) {
 			palmSave.clear();
+			cloud.markDirty();
 			return;
 		}
 		palmSave.save(palm.exportSave());
+		cloud.markDirty();
 	},
 );
 
@@ -705,6 +713,7 @@ watch(
 			turns: palm.turn,
 			replay: palm.replaySteps(),
 		});
+		cloud.markDirty();
 	},
 );
 
@@ -713,6 +722,8 @@ function saveAndExit() {
 	if (!palm.gameOver && palm.deck.length) {
 		palmSave.save(palm.exportSave());
 	}
+	cloud.markDirty();
+	cloud.flush();
 	emit("exit");
 }
 </script>

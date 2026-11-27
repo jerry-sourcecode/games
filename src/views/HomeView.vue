@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import ChromaGrid from "@/components/ChromaGrid.vue";
+import CloudPanel from "@/cloud/cloud-panel.vue";
+import { useCloudSave } from "@/cloud/store";
 import { habitGame } from "@/habits/data/habitData";
 import { palmGame } from "@/palm/data/palmGame";
 
@@ -52,6 +54,22 @@ const playableCount = computed(
 const openGame = (item: GameItem) => {
 	if (item.url?.startsWith("/")) router.push(item.url);
 };
+
+/* ---------- 云存档 / 账号 ---------- */
+
+const cloud = useCloudSave();
+const cloudShow = ref(false);
+
+// 进首页就先拉一次云端，登录状态与存档在进入游戏前就已同步好
+onMounted(() => void cloud.ready());
+
+const cloudDotClass = computed(() => {
+	if (!cloud.loggedIn) return "bg-white/30";
+	if (cloud.status === "error") return "bg-rose-400";
+	if (cloud.status === "syncing") return "bg-amber-300";
+	if (cloud.dirty) return "bg-amber-300";
+	return "bg-emerald-400";
+});
 </script>
 
 <template>
@@ -60,10 +78,6 @@ const openGame = (item: GameItem) => {
 			<header
 				class="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-6">
 				<div class="flex items-center gap-3">
-					<div
-						class="grid h-10 w-10 place-items-center rounded-2xl border border-white/10 bg-white/5 text-lg shadow-[0_0_24px_-6px_rgba(52,211,153,0.8)]">
-						🎮
-					</div>
 					<div>
 						<h1
 							class="text-base font-semibold tracking-tight text-white">
@@ -72,11 +86,33 @@ const openGame = (item: GameItem) => {
 					</div>
 				</div>
 
-				<div
-					class="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/55 backdrop-blur">
-					<span
-						class="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_2px_rgba(52,211,153,0.55)]" />
-					{{ playableCount }} 个游戏可玩
+				<div class="flex items-center gap-2">
+					<button
+						type="button"
+						class="flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
+						:class="
+							cloud.loggedIn
+								? 'border-emerald-400/30 bg-emerald-400/[0.08] text-emerald-100/85 hover:border-emerald-400/55'
+								: 'border-white/10 bg-white/5 text-white/60 hover:border-white/25 hover:text-white'
+						"
+						:title="
+							cloud.loggedIn
+								? `云存档：${cloud.username}${cloud.status === 'error' ? '（同步失败）' : cloud.dirty ? '（待上传）' : ''}`
+								: '登录后把存档、游戏记录与设置同步到云端'
+						"
+						@click="cloudShow = true">
+						<span
+							aria-hidden="true"
+							class="h-1.5 w-1.5 rounded-full"
+							:class="cloudDotClass" />
+						<span class="max-w-[9rem] truncate">
+							{{
+								cloud.loggedIn
+									? `您好，${cloud.username}`
+									: "登录"
+							}}
+						</span>
+					</button>
 				</div>
 			</header>
 
@@ -107,11 +143,8 @@ const openGame = (item: GameItem) => {
 						@select="openGame" />
 				</div>
 			</main>
-
-			<footer
-				class="mx-auto w-full max-w-6xl px-6 pb-6 text-center text-[11px] text-white/25">
-				更多游戏正在开发中
-			</footer>
 		</div>
+
+		<CloudPanel v-model:show="cloudShow" />
 	</div>
 </template>

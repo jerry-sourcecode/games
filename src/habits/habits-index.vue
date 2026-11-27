@@ -16,6 +16,7 @@ import SkillSelectDialog from "@/habits/component/skill-select-dialog.vue";
 import { habitSteps, habitsEffectRanges, useHabits } from "./data/habitData";
 import { gameStart, resetGame } from "./game";
 import { useHabitsRecord } from "./data/gameRecord";
+import { useCloudSave } from "@/cloud/store";
 import { HabitsResultRecord } from "./modal/habitModal";
 
 /** 卡面图片原始尺寸（1347×1808），用于按比例换算卡片高度 */
@@ -82,6 +83,7 @@ watch(
 					habitsStates.loadoutSummary(),
 				),
 			);
+			useCloudSave().markDirty();
 			resultShow.value = true;
 		}
 	},
