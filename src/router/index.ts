@@ -20,6 +20,11 @@ const router = createRouter({
             component: () => import('@/views/PalmView.vue'),
         },
         {
+            path: '/regicide',
+            name: 'regicide',
+            component: () => import('@/views/RegicideView.vue'),
+        },
+        {
             path: '/:pathMatch(.*)*',
             redirect: '/',
         },

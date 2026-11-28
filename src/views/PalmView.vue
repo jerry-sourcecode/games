@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from "vue";
+import BackHome from "@/components/BackHome.vue";
 import GameIntro from "@/components/GameIntro.vue";
 import PalmCardArea from "@/palm/component/palm-card-area.vue";
 import PalmModal from "@/palm/component/palm-modal.vue";
@@ -187,6 +188,9 @@ const columns: DataTableColumns<PalmRecord> = [
 		<div
 			class="relative mx-auto flex min-h-dvh w-full flex-col px-4 py-3 sm:px-5"
 			:class="started ? 'max-w-[1560px]' : 'max-w-5xl'">
+			<div class="mb-2 flex items-center">
+				<BackHome />
+			</div>
 			<main class="flex-1">
 				<GameIntro
 					v-if="!started"

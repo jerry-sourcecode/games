@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import BackHome from "@/components/BackHome.vue";
 import GameIntro from "@/components/GameIntro.vue";
 import { habitGame } from "@/habits/data/habitData";
 import HabitsIndex from "@/habits/habits-index.vue";
@@ -29,6 +30,9 @@ void cloud.ready();
 		<div
 			class="relative mx-auto flex min-h-dvh w-full flex-col px-5 py-3 sm:px-6"
 			:class="started ? 'max-w-6xl' : 'max-w-5xl'">
+			<div class="mb-2 flex items-center">
+				<BackHome />
+			</div>
 			<main class="flex-1">
 				<GameIntro
 					v-if="!started"

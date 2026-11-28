@@ -6,6 +6,7 @@ import CloudPanel from "@/cloud/cloud-panel.vue";
 import { useCloudSave } from "@/cloud/store";
 import { habitGame } from "@/habits/data/habitData";
 import { palmGame } from "@/palm/data/palmGame";
+import { regicideGame } from "@/regicide/data/regicideGame";
 
 interface GameItem {
 	image: string;
@@ -44,6 +45,17 @@ const games: GameItem[] = [
 		borderColor: palmGame.accent,
 		gradient: palmGame.gradient,
 		url: "/palm",
+	},
+	{
+		image: regicideGame.cover,
+		title: regicideGame.name,
+		subtitle: regicideGame.tagline,
+		tags: regicideGame.tags,
+		status: regicideGame.status,
+		cta: "开始游戏",
+		borderColor: regicideGame.accent,
+		gradient: regicideGame.gradient,
+		url: "/regicide",
 	},
 ];
 
