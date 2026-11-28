@@ -6,9 +6,31 @@
 
 const FALLBACK_BASE_URL = "http://localhost:8787";
 
-export const CLOUD_BASE_URL = (
-	import.meta.env.VITE_CLOUD_BASE_URL || FALLBACK_BASE_URL
-).replace(/\/+$/, "");
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "::1"];
+
+/**
+ * 页面是 HTTPS 时，绝对不能请求 http 后端（浏览器按 mixed content 直接拦截）。
+ * 这里把 http 地址自动升级成 https，只有本机地址例外——
+ * 本地开发常用 https 预览 + http 后端，而浏览器把 localhost 视为可信来源。
+ */
+function normalizeBaseUrl(raw: string): string {
+	const trimmed = raw.replace(/\/+$/, "");
+	if (!trimmed.toLowerCase().startsWith("http://")) return trimmed;
+	const isBrowser = typeof window !== "undefined";
+	if (!isBrowser || window.location.protocol !== "https:") return trimmed;
+	try {
+		const url = new URL(trimmed);
+		if (LOCAL_HOSTS.includes(url.hostname)) return trimmed;
+		url.protocol = "https:";
+		return url.toString().replace(/\/+$/, "");
+	} catch {
+		return trimmed;
+	}
+}
+
+export const CLOUD_BASE_URL = normalizeBaseUrl(
+	import.meta.env.VITE_CLOUD_BASE_URL || FALLBACK_BASE_URL,
+);
 
 export type CloudErrorCode =
 	| "USERNAME_TAKEN"
